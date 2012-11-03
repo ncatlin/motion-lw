@@ -2752,7 +2752,7 @@ int main (int argc, char **argv)
             SLEEP(1, 0);
 
             /* 
-             * Calculate how many threads runnig or wants to run
+             * Calculate how many threads are running or wants to run
              * if zero and we want to finish, break out
              */
             int motion_threads_running = 0;
