@@ -48,6 +48,7 @@ Features
    * Added codec Ogg/Theora as new output format for regular movies.
      http://www.lavrsen.dk/foswiki/bin/view/Motion/OggTimelapse (Michael Luich)
    * Added support for ffmpeg 0.11 new API.
+   * Allow text format specifiers to take a width like printf would.  (David Fries)
 
 Bugfixes
    * Avoid segfault detecting strerror_r() version GNU or SUSv3. (Angel Carpintero)
