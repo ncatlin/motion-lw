@@ -4,6 +4,7 @@ AC_INIT(motion, esyscmd(['./version.sh']))
 AC_CONFIG_SRCDIR([motion.c])
 AC_CONFIG_HEADERS(config.h)
 AC_PROG_CC
+AC_PREREQ(2.40)
 
 
 THREAD_CFLAGS=""
