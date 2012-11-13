@@ -85,6 +85,7 @@ Bugfixes
    * Fixed leak in vloopback.
    * Fixed a build of motion for some kernel version with not good videodev.h 
    * Fix webhttpd race condition crash with SIGHUP, add it to running thread counter (David Fries)
+   * Limit asm emms call to allow compiling on non x86 (ARM) systems (David Fries)
 
 3.2.12 Summary of Changes
 
