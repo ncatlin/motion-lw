@@ -32,9 +32,7 @@ config.status:
 		--sysconfdir=/etc/motion \
 		--with-ffmpeg \
 		--with-mysql \
-		--with-pgsql \
-		--without-optimizecpu \
-		--without-jpeg-mmx
+		--with-pgsql
 	touch configure-stamp
 
 build: build-arch build-indep
