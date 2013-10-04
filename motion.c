@@ -9,7 +9,7 @@
 #include "ffmpeg.h"
 #include "motion.h"
 
-#if (defined(BSD) && !defined(PWCBSD)) 
+#if (defined(BSD) && !defined(PWCBSD))
 #include "video_freebsd.h"
 #else
 #include "video.h"
@@ -17,10 +17,11 @@
 
 #include "conf.h"
 #include "alg.h"
-#include "track.h"
+//#include "track.h"
 #include "event.h"
 #include "picture.h"
 #include "rotate.h"
+
 
 /* Forward declarations */
 static int motion_init(struct context *cnt);
@@ -58,11 +59,15 @@ struct context **cnt_list = NULL;
  */
 volatile int threads_running = 0;
 
-/* Set this when we want main to end or restart */
-volatile unsigned int finish = 0;
+/*
+ * debug_level is for developers, normally used to control which
+ * types of messages get output.
+ */
+unsigned short int debug_level;
 
-/* Log file used instead of stderr and syslog */ 
-FILE *ptr_logfile = NULL;
+/* Set this when we want main to end or restart
+ */
+volatile unsigned short int finish = 0;
 
 /**
  * restart
@@ -71,7 +76,7 @@ FILE *ptr_logfile = NULL;
  *   finished running, 'main' checks if 'restart' is true and if so starts
  *   up again (instead of just quitting).
  */
-unsigned int restart = 0;
+unsigned short int restart = 0;
 
 /**
  * image_ring_resize
@@ -88,33 +93,29 @@ unsigned int restart = 0;
  */
 static void image_ring_resize(struct context *cnt, int new_size)
 {
-    /* 
-     * Only resize if :
+    /* Only resize if :
      * Not in an event and
      * decreasing at last position in new buffer
      * increasing at last position in old buffer 
-     * e.g. at end of smallest buffer 
-     */
+     * e.g. at end of smallest buffer */
     if (cnt->event_nr != cnt->prev_event) {
         int smallest;
-
-        if (new_size < cnt->imgs.image_ring_size)  /* Decreasing */
-            smallest = new_size;
-        else  /* Increasing */
-            smallest = cnt->imgs.image_ring_size;
         
+        if (new_size < cnt->imgs.image_ring_size) { /* Decreasing */
+            smallest = new_size;
+        } else { /* Increasing */
+            smallest = cnt->imgs.image_ring_size;
+        }
+
         if (cnt->imgs.image_ring_in == smallest - 1 || smallest == 0) {
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Resizing pre_capture buffer to %d items",
-                       new_size);
+            motion_log(LOG_INFO, 0, "Resizing pre_capture buffer to %d items", new_size);
 
             /* Create memory for new ring buffer */
             struct image_data *tmp;
             tmp = mymalloc(new_size * sizeof(struct image_data));
 
-            /* 
-             * Copy all information from old to new 
-             * Smallest is 0 at initial init 
-             */
+            /* Copy all information from old to new 
+             * Smallest is 0 at initial init */
             if (smallest > 0) 
                 memcpy(tmp, cnt->imgs.image_ring, sizeof(struct image_data) * smallest);
             
@@ -152,7 +153,7 @@ static void image_ring_resize(struct context *cnt, int new_size)
  */
 static void image_ring_destroy(struct context *cnt)
 {
-    int i;
+    unsigned short int i;
     
     /* Exit if don't have any ring */
     if (cnt->imgs.image_ring == NULL)
@@ -195,30 +196,16 @@ static void image_save_as_preview(struct context *cnt, struct image_data *img)
     /* Copy image */
     memcpy(cnt->imgs.preview_image.image, img->image, cnt->imgs.size);
 
-    /* 
-     * If we set output_all to yes and during the event
-     * there is no image with motion, diffs is 0, we are not going to save the preview event 
-     */
+    /* If we set output_all to yes and during the event
+     * there is no image with motion, diffs is 0, we are not going to save the preview event */
     if (cnt->imgs.preview_image.diffs == 0)
         cnt->imgs.preview_image.diffs = 1;
 
-    /* draw locate box here when mode = LOCATE_PREVIEW */
-    if (cnt->locate_motion_mode == LOCATE_PREVIEW) {
-
-        if (cnt->locate_motion_style == LOCATE_BOX) {
-            alg_draw_location(&img->location, &cnt->imgs, cnt->imgs.width, cnt->imgs.preview_image.image,
-                              LOCATE_BOX, LOCATE_NORMAL, cnt->process_thisframe);
-        } else if (cnt->locate_motion_style == LOCATE_REDBOX) {
-            alg_draw_red_location(&img->location, &cnt->imgs, cnt->imgs.width, cnt->imgs.preview_image.image,
-                                  LOCATE_REDBOX, LOCATE_NORMAL, cnt->process_thisframe);
-        } else if (cnt->locate_motion_style == LOCATE_CROSS) {
-            alg_draw_location(&img->location, &cnt->imgs, cnt->imgs.width, cnt->imgs.preview_image.image,
-                              LOCATE_CROSS, LOCATE_NORMAL, cnt->process_thisframe);
-        } else if (cnt->locate_motion_style == LOCATE_REDCROSS) {
-            alg_draw_red_location(&img->location, &cnt->imgs, cnt->imgs.width, cnt->imgs.preview_image.image,
-                                  LOCATE_REDCROSS, LOCATE_NORMAL, cnt->process_thisframe);
-        }     
-    }
+    /* If we have locate on it is already done */
+    if (cnt->locate == LOCATE_PREVIEW) 
+        alg_draw_location(&img->location, &cnt->imgs, cnt->imgs.width, 
+                          cnt->imgs.preview_image.image, LOCATE_NORMAL);
+    
 }
 
 /**
@@ -233,9 +220,9 @@ static void image_save_as_preview(struct context *cnt, struct image_data *img)
  *
  * Returns: nothing
  */
-static void context_init(struct context *cnt)
+static void context_init (struct context *cnt)
 {
-   /*
+    /*
     * We first clear the entire structure to zero, then fill in any
     * values which have non-zero default values.  Note that this
     * assumes that a NULL address pointer has a value of binary 0
@@ -249,7 +236,6 @@ static void context_init(struct context *cnt)
     cnt->noise = 255;
     cnt->lastrate = 25;
 
-    memcpy(&cnt->track, &track_template, sizeof(struct trackoptions));
     cnt->pipe = -1;
     cnt->mpipe = -1;
 
@@ -269,7 +255,7 @@ static void context_init(struct context *cnt)
  */
 static void context_destroy(struct context *cnt)
 {
-    unsigned int j;
+    unsigned short int j;
 
     /* Free memory allocated for config parameters */
     for (j = 0; config_params[j].param_name != NULL; j++) {
@@ -293,12 +279,11 @@ static void context_destroy(struct context *cnt)
  */
 static void sig_handler(int signo)
 {
-    int i;
+    short int i;
 
     switch(signo) {
     case SIGALRM:
-        /* 
-         * Somebody (maybe we ourself) wants us to make a snapshot
+        /* Somebody (maybe we ourself) wants us to make a snapshot
          * This feature triggers snapshots on ALL threads that have
          * snapshot_interval different from 0.
          */
@@ -307,15 +292,13 @@ static void sig_handler(int signo)
             while (cnt_list[++i]) {
                 if (cnt_list[i]->conf.snapshot_interval) 
                     cnt_list[i]->snapshot = 1;
-                
+                    
             }
         }
         break;
     case SIGUSR1:
-        /* 
-         * Ouch! We have been hit from the outside! Someone wants us to
-         * make a movie! 
-         */
+        /* Ouch! We have been hit from the outside! Someone wants us to
+           make a movie! */
         if (cnt_list) {
             i = -1;
             while (cnt_list[++i])
@@ -324,34 +307,27 @@ static void sig_handler(int signo)
         break;
     case SIGHUP:
         restart = 1;
-        /* 
-         * Fall through, as the value of 'restart' is the only difference
+        /* Fall through, as the value of 'restart' is the only difference
          * between SIGHUP and the ones below.
          */
     case SIGINT:
     case SIGQUIT:
     case SIGTERM:
-        /* 
-         * Somebody wants us to quit! We should better finish the actual
-         * movie and end up! 
-         */
+        /* Somebody wants us to quit! We should better finish the actual
+           movie and end up! */
         if (cnt_list) {
             i = -1;
             while (cnt_list[++i]) {
                 cnt_list[i]->makemovie = 1;
                 cnt_list[i]->finish = 1;
-                cnt_list[i]->webcontrol_finish = 1;
-                /* 
-                 * Don't restart thread when it ends, 
+                /* don't restart thread when it ends, 
                  * all threads restarts if global restart is set 
                  */
-                 cnt_list[i]->restart = 0;
+                cnt_list[i]->restart = 0;
             }
         }
-        /*
-         * Set flag we want to quit main check threads loop
-         * if restart is set (above) we start up again 
-         */
+        /* Set flag we want to quit main check threads loop
+         * if restart is set (above) we start up again */
         finish = 1;
         break;
     case SIGSEGV:
@@ -374,34 +350,26 @@ static void sigchild_handler(int signo ATTRIBUTE_UNUSED)
 }
 
 /**
- * motion_remove_pid
+ *  motion_remove_pid
  *
- *   This function remove the process id file ( pid file ) before motion exit.
+ *  This function remove the process id file ( pid file ) before motion exit.
+ *
  */
 static void motion_remove_pid(void)
 {
     if ((cnt_list[0]->daemon) && (cnt_list[0]->conf.pid_file) && (restart == 0)) {
         if (!unlink(cnt_list[0]->conf.pid_file)) 
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Removed process id file (pid file).");
+            motion_log(LOG_INFO, 0, "Removed process id file (pid file).");
         else 
-            MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Error removing pid file");
+            motion_log(LOG_INFO, 1, "Error removing pid file");
     }
-
-    if (ptr_logfile) { 
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Closing logfile (%s).",  
-                   cnt_list[0]->conf.log_file);
-        myfclose(ptr_logfile);
-        set_log_mode(LOGMODE_SYSLOG);
-        ptr_logfile = NULL;
-    }        
-
 }
 
 /**
  * motion_detected
  *
  *   Called from 'motion_loop' when motion is detected
- *   Can be called when no motion if emulate_motion is set!
+ *   Can be called when no motion if output_all is set!
  *
  * Parameters:
  *
@@ -414,240 +382,28 @@ static void motion_detected(struct context *cnt, int dev, struct image_data *img
     struct config *conf = &cnt->conf;
     struct images *imgs = &cnt->imgs;
     struct coord *location = &img->location;
-
-    /* Draw location */
-    if (cnt->locate_motion_mode == LOCATE_ON) {
-
-        if (cnt->locate_motion_style == LOCATE_BOX) {
-            alg_draw_location(location, imgs, imgs->width, img->image, LOCATE_BOX,
-                              LOCATE_BOTH, cnt->process_thisframe);
-        } else if (cnt->locate_motion_style == LOCATE_REDBOX) {
-            alg_draw_red_location(location, imgs, imgs->width, img->image, LOCATE_REDBOX,
-                                  LOCATE_BOTH, cnt->process_thisframe);
-        } else if (cnt->locate_motion_style == LOCATE_CROSS) {
-            alg_draw_location(location, imgs, imgs->width, img->image, LOCATE_CROSS, 
-                              LOCATE_BOTH, cnt->process_thisframe);
-        } else if (cnt->locate_motion_style == LOCATE_REDCROSS) {
-            alg_draw_red_location(location, imgs, imgs->width, img->image, LOCATE_REDCROSS, 
-                                  LOCATE_BOTH, cnt->process_thisframe);
-        }    
-    }
-
-    /* Calculate how centric motion is if configured preview center*/
-    if (cnt->new_img & NEWIMG_CENTER) {
-        unsigned int distX = abs((imgs->width / 2) - location->x);
-        unsigned int distY = abs((imgs->height / 2) - location->y);
-
-        img->cent_dist = distX * distX + distY * distY;
-    }
-
-
+    
     /* Do things only if we have got minimum_motion_frames */
     if (img->flags & IMAGE_TRIGGER) {
-        /* Take action if this is a new event and we have a trigger image */
-        if (cnt->event_nr != cnt->prev_event) {
-            /* 
-             * Reset prev_event number to current event and save event time
-             * in both time_t and struct tm format.
-             */
+	if (cnt->event_nr != cnt->prev_event) {
+
+	    motion_log(2, 0,"motion:0");
+	  
+	    event(cnt, EVENT_IMAGE_DETECTED, img->image, NULL, NULL, &img->timestamp_tm);
+	    
+	    /*
+	    * Reset prev_event number to current event and save event time
+	    * in both time_t and struct tm format.
+	    */
             cnt->prev_event = cnt->event_nr;
             cnt->eventtime = img->timestamp;
             localtime_r(&cnt->eventtime, cnt->eventtime_tm);
-
-            /* 
-             * Since this is a new event we create the event_text_string used for
-             * the %C conversion specifier. We may already need it for
-             * on_motion_detected_commend so it must be done now.
-             */
-            mystrftime(cnt, cnt->text_event_string, sizeof(cnt->text_event_string),
-                       cnt->conf.text_event, cnt->eventtime_tm, NULL, 0);
-
-            /* EVENT_FIRSTMOTION triggers on_event_start_command and event_ffmpeg_newfile */
-            event(cnt, EVENT_FIRSTMOTION, img->image, NULL, NULL, &img->timestamp_tm);
-
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion detected - starting event %d", 
-                       cnt->event_nr);
-
-            /* always save first motion frame as preview-shot, may be changed to an other one later */
-            if (cnt->new_img & (NEWIMG_FIRST | NEWIMG_BEST | NEWIMG_CENTER)) 
-                image_save_as_preview(cnt, img);
-            
-        }
-
-        /* EVENT_MOTION triggers event_beep and on_motion_detected_command */
-        event(cnt, EVENT_MOTION, NULL, NULL, NULL, &img->timestamp_tm);
+	}
     }
-
-    /* Limit framerate */
-    if (img->shot < conf->frame_limit) {
-        /* 
-         * If config option stream_motion is enabled, send the latest motion detected image
-         * to the stream but only if it is not the first shot within a second. This is to
-         * avoid double frames since we already have sent a frame to the stream.
-         * We also disable this in setup_mode.
-         */
-        if (conf->stream_motion && !conf->setup_mode && img->shot != 1) 
-            event(cnt, EVENT_STREAM, img->image, NULL, NULL, &img->timestamp_tm);
-
-        /* 
-         * Save motion jpeg, if configured 
-         * Output the image_out (motion) picture. 
-         */
-        if (conf->motion_img) 
-            event(cnt, EVENT_IMAGEM_DETECTED, NULL, NULL, NULL, &img->timestamp_tm);
-    }
-
-    /* if track enabled and auto track on */
-    if (cnt->track.type && cnt->track.active) 
-        cnt->moved = track_move(cnt, dev, location, imgs, 0);
     
 }
 
-/**
- * process_image_ring
- *
- *   Called from 'motion_loop' to save images / send images to movie
- *
- * Parameters:
- *
- *   cnt        - current thread's context struct
- *   max_images - Max number of images to process
- *                Set to IMAGE_BUFFER_FLUSH to send/save all images in buffer
- */
-#define IMAGE_BUFFER_FLUSH ((unsigned int)-1)
-static void process_image_ring(struct context *cnt, unsigned int max_images)
-{
-    /* 
-     * We are going to send an event, in the events there is still
-     * some code that use cnt->current_image
-     * so set it temporary to our image 
-     */
-    struct image_data *saved_current_image = cnt->current_image;
 
-    /* If image is flaged to be saved and not saved yet, process it */
-    do {
-        /* Check if we should save/send this image, breakout if not */
-        if ((cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & (IMAGE_SAVE | IMAGE_SAVED)) != IMAGE_SAVE)
-            break;
-
-        /* Set inte global cotext that we are working with this image */
-        cnt->current_image = &cnt->imgs.image_ring[cnt->imgs.image_ring_out];
-
-        if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].shot < cnt->conf.frame_limit) {
-            if (cnt->log_level >= DBG) {
-                char tmp[32];
-                const char *t;
-
-                if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & IMAGE_TRIGGER)
-                    t = "Trigger";
-                else if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & IMAGE_MOTION)
-                    t = "Motion";
-                else if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & IMAGE_PRECAP)
-                    t = "Precap";
-                else if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & IMAGE_POSTCAP)
-                    t = "Postcap";
-                else
-                    t = "Other";
-
-                mystrftime(cnt, tmp, sizeof(tmp), "%H%M%S-%q", 
-                           &cnt->imgs.image_ring[cnt->imgs.image_ring_out].timestamp_tm, NULL, 0);
-                draw_text(cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, 10, 20, 
-                          cnt->imgs.width, tmp, cnt->conf.text_double);
-                draw_text(cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, 10, 30, 
-                          cnt->imgs.width, t, cnt->conf.text_double);
-            }
-
-            /* Output the picture to jpegs and ffmpeg */
-            event(cnt, EVENT_IMAGE_DETECTED,
-                  cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, NULL, NULL, 
-                  &cnt->imgs.image_ring[cnt->imgs.image_ring_out].timestamp_tm);
-
-            /* 
-             * Check if we must add any "filler" frames into movie to keep up fps 
-             * Only if we are recording videos ( ffmpeg or extenal pipe )         
-             */
-            if ((cnt->imgs.image_ring[cnt->imgs.image_ring_out].shot == 0) &&
-#ifdef HAVE_FFMPEG
-                (cnt->ffmpeg_output || (cnt->conf.useextpipe && cnt->extpipe))) {
-#else
-                (cnt->conf.useextpipe && cnt->extpipe)) {
-#endif
-                /* 
-                 * movie_last_shoot is -1 when file is created,
-                 * we don't know how many frames there is in first sec 
-                 */
-                if (cnt->movie_last_shot >= 0) {
-                    if (cnt_list[0]->log_level >= DBG) {
-                        int frames = cnt->movie_fps - (cnt->movie_last_shot + 1);
-                        if (frames > 0) {
-                            char tmp[15];
-                            MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: Added %d fillerframes into movie", 
-                                       frames);
-                            sprintf(tmp, "Fillerframes %d", frames);
-                            draw_text(cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, 10, 40, 
-                                      cnt->imgs.width, tmp, cnt->conf.text_double);
-                        }
-                    }
-                    /* Check how many frames it was last sec */
-                    while ((cnt->movie_last_shot + 1) < cnt->movie_fps) {
-                        /* Add a filler frame into encoder */
-                        event(cnt, EVENT_FFMPEG_PUT,
-                              cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, NULL, NULL, 
-                              &cnt->imgs.image_ring[cnt->imgs.image_ring_out].timestamp_tm);
-
-                        cnt->movie_last_shot++;
-                    }
-                }
-                cnt->movie_last_shot = 0;
-            } else if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].shot != (cnt->movie_last_shot + 1)) {
-                /* We are out of sync! Propably we got motion - no motion - motion */
-                cnt->movie_last_shot = -1;
-            }
-
-            /* 
-             * Save last shot added to movie
-             * only when we not are within first sec 
-             */
-            if (cnt->movie_last_shot >= 0)
-                cnt->movie_last_shot = cnt->imgs.image_ring[cnt->imgs.image_ring_out].shot;
-        }
-
-        /* Mark the image as saved */
-        cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags |= IMAGE_SAVED;
-
-        /* Store it as a preview image, only if it have motion */
-        if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & IMAGE_MOTION) {
-            /* Check for most significant preview-shot when output_pictures=best */
-            if (cnt->new_img & NEWIMG_BEST) {
-                if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].diffs > cnt->imgs.preview_image.diffs) {
-                    image_save_as_preview(cnt, &cnt->imgs.image_ring[cnt->imgs.image_ring_out]);
-                }
-            }
-            /* Check for most significant preview-shot when output_pictures=center */
-            if (cnt->new_img & NEWIMG_CENTER) {
-                if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].cent_dist < cnt->imgs.preview_image.cent_dist) {
-                    image_save_as_preview(cnt, &cnt->imgs.image_ring[cnt->imgs.image_ring_out]);
-                }
-            }
-        }
-
-        /* Increment to image after last sended */
-        if (++cnt->imgs.image_ring_out >= cnt->imgs.image_ring_size)
-            cnt->imgs.image_ring_out = 0;
-
-        if (max_images != IMAGE_BUFFER_FLUSH) {
-            max_images--;
-            /* breakout if we have done max_images */
-            if (max_images == 0)
-                break;
-        }
-
-        /* loop until out and in is same e.g. buffer empty */
-    } while (cnt->imgs.image_ring_out != cnt->imgs.image_ring_in);
-
-    /* restore global context values */
-    cnt->current_image = saved_current_image;
-}
 
 /**
  * motion_init
@@ -662,10 +418,10 @@ static void process_image_ring(struct context *cnt, unsigned int max_images)
  * Returns:     0 OK
  *             -1 Fatal error, open loopback error
  *             -2 Fatal error, open SQL database error
- *             -3 Fatal error, image dimensions are not modulo 16
  */
 static int motion_init(struct context *cnt)
 {
+    int i;
     FILE *picture;
 
     /* Store thread number in TLS. */
@@ -679,42 +435,34 @@ static int motion_init(struct context *cnt)
 
     cnt->smartmask_speed = 0;
 
-    /* 
-     * We initialize cnt->event_nr to 1 and cnt->prev_event to 0 (not really needed) so
-     * that certain code below does not run until motion has been detected the first time 
-     */
+    /* We initialize cnt->event_nr to 1 and cnt->prev_event to 0 (not really needed) so
+     * that certain code below does not run until motion has been detected the first time */
     cnt->event_nr = 1;
     cnt->prev_event = 0;
     cnt->lightswitch_framecounter = 0;
     cnt->detecting_motion = 0;
     cnt->makemovie = 0;
 
-    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Thread %d started , motion detection %s", 
-               (unsigned long)pthread_getspecific(tls_key_threadnr), cnt->pause ? "Disabled":"Enabled");
+    motion_log(LOG_DEBUG, 0, "Thread %d started", (unsigned long)pthread_getspecific(tls_key_threadnr));
 
     if (!cnt->conf.filepath)
-        cnt->conf.filepath = mystrdup(".");
+        cnt->conf.filepath = strdup(".");
 
     /* set the device settings */
     cnt->video_dev = vid_start(cnt);
 
-    /* 
-     * We failed to get an initial image from a camera
+    /* We failed to get an initial image from a camera
      * So we need to guess height and width based on the config
      * file options.
      */
-    if (cnt->video_dev == -1) {
-        MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO, "%s: Could not fetch initial image from camera " 
-                   "Motion continues using width and height from config file(s)");
+    if (cnt->video_dev < 0) {
+        motion_log(LOG_ERR, 0, "Could not fetch initial image from camera");
+        motion_log(LOG_ERR, 0, "Motion continues using width and height from config file(s)");
         cnt->imgs.width = cnt->conf.width;
         cnt->imgs.height = cnt->conf.height;
         cnt->imgs.size = cnt->conf.width * cnt->conf.height * 3 / 2;
         cnt->imgs.motionsize = cnt->conf.width * cnt->conf.height;
         cnt->imgs.type = VIDEO_PALETTE_YUV420P;
-    } else if (cnt->video_dev == -2) {
-        MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO, "%s: Could not fetch initial image from camera "
-                   "Motion only supports width and height modulo 16");
-        return -3;
     }
 
     image_ring_resize(cnt, 1); /* Create a initial precapture ring buffer with 1 frame */
@@ -722,7 +470,6 @@ static int motion_init(struct context *cnt)
     cnt->imgs.ref = mymalloc(cnt->imgs.size);
     cnt->imgs.out = mymalloc(cnt->imgs.size);
     memset(cnt->imgs.out, 0, cnt->imgs.size);
-
     /* contains the moving objects of ref. frame */
     cnt->imgs.ref_dyn = mymalloc(cnt->imgs.motionsize * sizeof(cnt->imgs.ref_dyn));
     cnt->imgs.image_virgin = mymalloc(cnt->imgs.size);
@@ -732,23 +479,14 @@ static int motion_init(struct context *cnt)
     cnt->imgs.labels = mymalloc(cnt->imgs.motionsize * sizeof(cnt->imgs.labels));
     cnt->imgs.labelsize = mymalloc((cnt->imgs.motionsize/2+1) * sizeof(cnt->imgs.labelsize));
 
-    /* Set output picture type */
-    if (!strcmp(cnt->conf.picture_type, "ppm"))
-        cnt->imgs.picture_type = IMAGE_TYPE_PPM;
-    else
-        cnt->imgs.picture_type = IMAGE_TYPE_JPEG;
-
     /* allocate buffer here for preview buffer */
     cnt->imgs.preview_image.image = mymalloc(cnt->imgs.size);
 
-    /* 
-     * Allocate a buffer for temp. usage in some places 
-     * Only despeckle & bayer2rgb24() for now for now... 
-     */
+    /* Allocate a buffer for temp. usage in some places */
+    /* Only despeckle & bayer2rgb24() for now for now... */
     cnt->imgs.common_buffer = mymalloc(3 * cnt->imgs.width * cnt->imgs.height);
 
-    /* 
-     * Now is a good time to init rotation data. Since vid_start has been
+    /* Now is a good time to init rotation data. Since vid_start has been
      * called, we know that we have imgs.width and imgs.height. When capturing
      * from a V4L device, these are copied from the corresponding conf values
      * in vid_start. When capturing from a netcam, they get set in netcam_start,
@@ -760,165 +498,53 @@ static int motion_init(struct context *cnt)
 
     /* Capture first image, or we will get an alarm on start */
     if (cnt->video_dev > 0) {
-        int i;
-
         for (i = 0; i < 5; i++) {
             if (vid_next(cnt, cnt->imgs.image_virgin) == 0)
                 break;
-            SLEEP(2, 0);
+            SLEEP(2,0);
         }
-
         if (i >= 5) {
             memset(cnt->imgs.image_virgin, 0x80, cnt->imgs.size);       /* initialize to grey */
             draw_text(cnt->imgs.image_virgin, 10, 20, cnt->imgs.width,
                       "Error capturing first image", cnt->conf.text_double);
-            MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Error capturing first image");
+            motion_log(LOG_ERR, 0, "Error capturing first image");
         }
     }
 
     /* create a reference frame */
     alg_update_reference_frame(cnt, RESET_REF_FRAME);
 
-#if defined(HAVE_LINUX_VIDEODEV_H) && !defined(WITHOUT_V4L) && !defined(BSD)    
+#if !defined(WITHOUT_V4L) && !defined(BSD)
     /* open video loopback devices if enabled */
     if (cnt->conf.vidpipe) {
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Opening video loopback device for normal pictures");
+        if (cnt->conf.setup_mode)
+            motion_log(-1, 0, "Opening video loopback device for normal pictures");
 
         /* vid_startpipe should get the output dimensions */
         cnt->pipe = vid_startpipe(cnt->conf.vidpipe, cnt->imgs.width, cnt->imgs.height, cnt->imgs.type);
 
         if (cnt->pipe < 0) {
-            MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Failed to open video loopback for normal pictures"); 
+            motion_log(LOG_ERR, 0, "Failed to open video loopback");
             return -1;
         }
     }
-
     if (cnt->conf.motionvidpipe) {
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Opening video loopback device for motion pictures"); 
+        if (cnt->conf.setup_mode)
+            motion_log(-1, 0, "Opening video loopback device for motion pictures");
 
         /* vid_startpipe should get the output dimensions */
         cnt->mpipe = vid_startpipe(cnt->conf.motionvidpipe, cnt->imgs.width, cnt->imgs.height, cnt->imgs.type);
 
         if (cnt->mpipe < 0) {
-            MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Failed to open video loopback for motion pictures"); 
+            motion_log(LOG_ERR, 0, "Failed to open video loopback");
             return -1;
         }
     }
-#endif /* !WITHOUT_V4L && !BSD */
+#endif /*WITHOUT_V4L && !BSD */
 
-#if defined(HAVE_MYSQL) || defined(HAVE_PGSQL) || defined(HAVE_SQLITE3)
-    if (cnt->conf.database_type) {
-        MOTION_LOG(NTC, TYPE_DB, NO_ERRNO, "%s: Database backend %s",  
-                   cnt->conf.database_type);
-        
-#ifdef HAVE_SQLITE3
-    if ((!strcmp(cnt->conf.database_type, "sqlite3")) && cnt->conf.sqlite3_db) {
-        MOTION_LOG(NTC, TYPE_DB, NO_ERRNO, "%s: DB %s", 
-                   cnt->conf.sqlite3_db);
 
-        if (sqlite3_open(cnt->conf.sqlite3_db, &cnt->database_sqlite3) != SQLITE_OK) {
-            MOTION_LOG(ERR, TYPE_DB, NO_ERRNO, "%s: Can't open database %s : %s\n",  
-                       cnt->conf.sqlite3_db, sqlite3_errmsg(cnt->database_sqlite3));
-            sqlite3_close(cnt->database_sqlite3);
-            exit(1);
-        }
-    }
-#endif /* HAVE_SQLITE3 */
 
-#ifdef HAVE_MYSQL
-        if ((!strcmp(cnt->conf.database_type, "mysql")) && (cnt->conf.database_dbname)) { 
-            // close database to be sure that we are not leaking
-            mysql_close(cnt->database);
-
-            cnt->database = (MYSQL *) mymalloc(sizeof(MYSQL));
-            mysql_init(cnt->database);
-
-            if (!mysql_real_connect(cnt->database, cnt->conf.database_host, cnt->conf.database_user,
-                cnt->conf.database_password, cnt->conf.database_dbname, 0, NULL, 0)) {
-                MOTION_LOG(ERR, TYPE_DB, NO_ERRNO, "%s: Cannot connect to MySQL database %s on host %s with user %s",
-                           cnt->conf.database_dbname, cnt->conf.database_host, 
-                           cnt->conf.database_user);
-                MOTION_LOG(ERR, TYPE_DB, NO_ERRNO, "%s: MySQL error was %s", mysql_error(cnt->database));
-                return -2;
-            }
-#if (defined(MYSQL_VERSION_ID)) && (MYSQL_VERSION_ID > 50012)
-            my_bool my_true = TRUE;
-            mysql_options(cnt->database, MYSQL_OPT_RECONNECT, &my_true);
-#endif
-        }
-#endif /* HAVE_MYSQL */
-
-#ifdef HAVE_PGSQL
-        if ((!strcmp(cnt->conf.database_type, "postgresql")) && (cnt->conf.database_dbname)) {
-            char connstring[255];
-
-            /* 
-             * Create the connection string.
-             * Quote the values so we can have null values (blank)
-             */
-            snprintf(connstring, 255,
-                     "dbname='%s' host='%s' user='%s' password='%s' port='%d'",
-                      cnt->conf.database_dbname, /* dbname */
-                      (cnt->conf.database_host ? cnt->conf.database_host : ""), /* host (may be blank) */
-                      (cnt->conf.database_user ? cnt->conf.database_user : ""), /* user (may be blank) */
-                      (cnt->conf.database_password ? cnt->conf.database_password : ""), /* password (may be blank) */
-                      cnt->conf.database_port
-            );
-
-            cnt->database_pg = PQconnectdb(connstring);
-            if (PQstatus(cnt->database_pg) == CONNECTION_BAD) {
-                MOTION_LOG(ERR, TYPE_DB, NO_ERRNO, "%s: Connection to PostgreSQL database '%s' failed: %s",
-                           cnt->conf.database_dbname, PQerrorMessage(cnt->database_pg));
-                return -2;
-            }
-        }
-#endif /* HAVE_PGSQL */
-    
-
-        /* Set the sql mask file according to the SQL config options*/
-
-        cnt->sql_mask = cnt->conf.sql_log_image * (FTYPE_IMAGE + FTYPE_IMAGE_MOTION) +
-                        cnt->conf.sql_log_snapshot * FTYPE_IMAGE_SNAPSHOT +
-                        cnt->conf.sql_log_movie * (FTYPE_MPEG + FTYPE_MPEG_MOTION) +
-                        cnt->conf.sql_log_timelapse * FTYPE_MPEG_TIMELAPSE;
-    }
-
-#endif /* defined(HAVE_MYSQL) || defined(HAVE_PGSQL) || defined(HAVE_SQLITE3) */
-
-    /* Load the mask file if any */
-    if (cnt->conf.mask_file) {
-        if ((picture = myfopen(cnt->conf.mask_file, "r", 0))) {
-            /* 
-             * NOTE: The mask is expected to have the output dimensions. I.e., the mask
-             * applies to the already rotated image, not the capture image. Thus, use
-             * width and height from imgs.
-             */
-            cnt->imgs.mask = get_pgm(picture, cnt->imgs.width, cnt->imgs.height);
-            myfclose(picture);
-        } else {
-            MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Error opening mask file %s", 
-                       cnt->conf.mask_file);
-            /* 
-             * Try to write an empty mask file to make it easier
-             * for the user to edit it 
-             */
-            put_fixed_mask(cnt, cnt->conf.mask_file);
-        }
-
-        if (!cnt->imgs.mask) {
-            MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Failed to read mask image. Mask feature disabled."); 
-        } else {
-            MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: Maskfile \"%s\" loaded.", 
-                       cnt->conf.mask_file);
-        }
-    } else {
-        cnt->imgs.mask = NULL;
-    }
-
-    /* Always initialize smart_mask - someone could turn it on later... */
-    memset(cnt->imgs.smartmask, 0, cnt->imgs.motionsize);
-    memset(cnt->imgs.smartmask_final, 255, cnt->imgs.motionsize);
-    memset(cnt->imgs.smartmask_buffer, 0, cnt->imgs.motionsize*sizeof(cnt->imgs.smartmask_buffer));
+    cnt->imgs.mask = NULL;  
 
     /* Set noise level */
     cnt->noise = cnt->conf.noise;
@@ -926,17 +552,7 @@ static int motion_init(struct context *cnt)
     /* Set threshold value */
     cnt->threshold = cnt->conf.max_changes;
 
-    /* Initialize stream server if stream port is specified to not 0 */
-    if (cnt->conf.stream_port) {
-        if (stream_init(cnt) == -1) {
-            MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Problem enabling motion-stream server in port %d", 
-                       cnt->conf.stream_port);
-            cnt->finish = 1;
-        } else {  
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Started motion-stream server in port %d auth %s", 
-                       cnt->conf.stream_port, cnt->conf.stream_auth_method ? "Enabled":"Disabled");
-        }    
-    }
+  
 
     /* Prevent first few frames from triggering motion... */
     cnt->moved = 8;
@@ -960,11 +576,11 @@ static int motion_init(struct context *cnt)
  */
 static void motion_cleanup(struct context *cnt)
 {
-    /* Stop stream */
+    /* Stop webcam */
     event(cnt, EVENT_STOP, NULL, NULL, NULL, NULL);
 
     if (cnt->video_dev >= 0) {
-        MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: Calling vid_close() from motion_cleanup");        
+        motion_log(LOG_DEBUG, 0, "Calling vid_close() from motion_cleanup");        
         vid_close(cnt);
     }
 
@@ -1048,26 +664,6 @@ static void motion_cleanup(struct context *cnt)
         free(cnt->eventtime_tm);
         cnt->eventtime_tm = NULL;
     }
-
-    if (cnt->conf.database_type) {
-#ifdef HAVE_MYSQL
-        if ( (!strcmp(cnt->conf.database_type, "mysql")) && (cnt->conf.database_dbname)) {    
-            mysql_close(cnt->database); 
-        }
-#endif /* HAVE_MYSQL */
-
-#ifdef HAVE_PGSQL
-        if ((!strcmp(cnt->conf.database_type, "postgresql")) && (cnt->conf.database_dbname)) {
-            PQfinish(cnt->database_pg);
-        }
-#endif /* HAVE_PGSQL */ 
-
-#ifdef HAVE_SQLITE3    
-        /* Close the SQLite database */
-        if (cnt->conf.sqlite3_db)
-            sqlite3_close(cnt->database_sqlite3);
-#endif /* HAVE_SQLITE3 */
-    }
 }
 
 /**
@@ -1082,33 +678,36 @@ static void *motion_loop(void *arg)
     int i, j, z = 0;
     time_t lastframetime = 0;
     int frame_buffer_size;
-    unsigned int rate_limit = 0;
+    unsigned short int ref_frame_limit = 0;
     int area_once = 0;
     int area_minx[9], area_miny[9], area_maxx[9], area_maxy[9];
     int smartmask_ratio = 0;
     int smartmask_count = 20;
-    unsigned int smartmask_lastrate = 0;
+    int smartmask_lastrate = 0;
     int olddiffs = 0;
     int previous_diffs = 0, previous_location_x = 0, previous_location_y = 0;
-    unsigned int text_size_factor;
-    unsigned int passflag = 0;
+    unsigned short int text_size_factor;
+    unsigned short int passflag = 0;
     long int *rolling_average_data = NULL;
     long int rolling_average_limit, required_frame_time, frame_delay, delay_time_nsec;
     int rolling_frame = 0;
     struct timeval tv1, tv2;
     unsigned long int rolling_average, elapsedtime;
     unsigned long long int timenow = 0, timebefore = 0;
-    int vid_return_code = 0;        /* Return code used when calling vid_next */
-    int minimum_frame_time_downcounter = cnt->conf.minimum_frame_time; /* time in seconds to skip between capturing images */
-    unsigned int get_image = 1;    /* Flag used to signal that we capture new image when we run the loop */
-    struct image_data *old_image;
+    /* Return code used when calling vid_next */
+    int vid_return_code = 0;       
+    /* time in seconds to skip between capturing images */
+    int minimum_frame_time_downcounter = cnt->conf.minimum_frame_time;
+    /* Flag used to signal that we capture new image when we run the loop */
+    unsigned short int get_image = 1;
 
-    /* 
-     * Next two variables are used for snapshot and timelapse feature
-     * time_last_frame is set to 1 so that first coming timelapse or second = 0
+    /* Next two variables are used for snapshot and timelapse feature
+     * time_last_frame is set to 1 so that first coming timelapse or second=0
      * is acted upon.
      */
-    unsigned long int time_last_frame = 1, time_current_frame;
+    unsigned long int time_last_frame=1, time_current_frame;
+
+    cnt->running = 1;
     
     if (motion_init(cnt) < 0) 
         goto err;
@@ -1158,10 +757,6 @@ static void *motion_loop(void *arg)
     for (j = 0; j < rolling_average_limit; j++)
         rolling_average_data[j] = required_frame_time;
 
-
-    if (cnt->track.type)
-        cnt->moved = track_center(cnt, cnt->video_dev, 0, 0, 0);
-
 #ifdef __OpenBSD__
     /* 
      * FIXMARK 
@@ -1172,10 +767,8 @@ static void *motion_loop(void *arg)
     setup_signals(&sig_handler_action, &sigchild_action);
 #endif
 
-    /*
-     * MAIN MOTION LOOP BEGINS HERE 
-     * Should go on forever... unless you bought vaporware :) 
-     */
+    /* MAIN MOTION LOOP BEGINS HERE */
+    /* Should go on forever... unless you bought vaporware :) */
 
     while (!cnt->finish || cnt->makemovie) {
 
@@ -1187,49 +780,34 @@ static void *motion_loop(void *arg)
         gettimeofday(&tv1, NULL);
         timenow = tv1.tv_usec + 1000000L * tv1.tv_sec;
 
-        /* 
-         * Calculate detection rate limit. Above 5fps we limit the detection
-         * rate to 3fps to reduce load at higher framerates. 
-         */
-        cnt->process_thisframe = 0;
-        rate_limit++;
-        if (rate_limit >= (cnt->lastrate / 3)) {
-            rate_limit = 0;
-            cnt->process_thisframe = 1;
-        }
-
-        /* 
-         * Since we don't have sanity checks done when options are set,
+        /* since we don't have sanity checks done when options are set,
          * this sanity check must go in the main loop :(, before pre_captures
-         * are attempted. 
-         */
-        if (cnt->conf.minimum_motion_frames < 1)
-            cnt->conf.minimum_motion_frames = 1;
+         * are attempted. */
+	if (cnt->conf.minimum_motion_frames < 1)
 
+        
         if (cnt->conf.pre_capture < 0)
             cnt->conf.pre_capture = 0;
 
-        /* 
-         * Check if our buffer is still the right size
+        /* Check if our buffer is still the right size
          * If pre_capture or minimum_motion_frames has been changed
          * via the http remote control we need to re-size the ring buffer
          */
         frame_buffer_size = cnt->conf.pre_capture + cnt->conf.minimum_motion_frames;
-
+        
         if (cnt->imgs.image_ring_size != frame_buffer_size) 
             image_ring_resize(cnt, frame_buffer_size);
         
+
         /* Get time for current frame */
         cnt->currenttime = time(NULL);
 
-        /* 
-         * localtime returns static data and is not threadsafe
+        /* localtime returns static data and is not threadsafe
          * so we use localtime_r which is reentrant and threadsafe
          */
         localtime_r(&cnt->currenttime, cnt->currenttime_tm);
 
-        /* 
-         * If we have started on a new second we reset the shots variable
+        /* If we have started on a new second we reset the shots variable
          * lastrate is updated to be the number of the last frame. last rate
          * is used as the ffmpeg framerate when motion is detected.
          */
@@ -1237,7 +815,6 @@ static void *motion_loop(void *arg)
             cnt->lastrate = cnt->shots + 1;
             cnt->shots = -1;
             lastframetime = cnt->currenttime;
-            
             if (cnt->conf.minimum_frame_time) {
                 minimum_frame_time_downcounter--;
                 if (minimum_frame_time_downcounter == 0)
@@ -1254,7 +831,7 @@ static void *motion_loop(void *arg)
         if (cnt->startup_frames > 0)
             cnt->startup_frames--;
 
-        if (get_image) {
+        if (get_image){
             if (cnt->conf.minimum_frame_time) {
                 minimum_frame_time_downcounter = cnt->conf.minimum_frame_time;
                 get_image = 0;
@@ -1271,11 +848,17 @@ static void *motion_loop(void *arg)
             }
 
             /* cnt->current_image points to position in ring where to store image, diffs etc. */
-            old_image = cnt->current_image;
             cnt->current_image = &cnt->imgs.image_ring[cnt->imgs.image_ring_in];
 
             /* Init/clear current_image */
-            if (cnt->process_thisframe) {
+            {
+                /* Store time with pre_captured image */
+                cnt->current_image->timestamp = cnt->currenttime;
+                localtime_r(&cnt->current_image->timestamp, &cnt->current_image->timestamp_tm);
+
+                /* Store shot number with pre_captured image */
+                cnt->current_image->shot = cnt->shots;
+
                 /* set diffs to 0 now, will be written after we calculated diffs in new image */
                 cnt->current_image->diffs = 0;
 
@@ -1286,52 +869,31 @@ static void *motion_loop(void *arg)
                 /* Clear location data */
                 memset(&cnt->current_image->location, 0, sizeof(cnt->current_image->location));
                 cnt->current_image->total_labels = 0;
-            } else if (cnt->current_image && old_image) {
-                /* not processing this frame: save some important values for next image */
-                cnt->current_image->diffs = old_image->diffs;
-                cnt->current_image->timestamp = old_image->timestamp;
-                cnt->current_image->timestamp_tm = old_image->timestamp_tm;
-                cnt->current_image->shot = old_image->shot;
-                cnt->current_image->cent_dist = old_image->cent_dist;
-                cnt->current_image->flags = old_image->flags;
-                cnt->current_image->location = old_image->location;
-                cnt->current_image->total_labels = old_image->total_labels;
             }
 
-            /* Store time with pre_captured image */
-            cnt->current_image->timestamp = cnt->currenttime;
-            localtime_r(&cnt->current_image->timestamp, &cnt->current_image->timestamp_tm);
-
-            /* Store shot number with pre_captured image */
-            cnt->current_image->shot = cnt->shots;
-
         /***** MOTION LOOP - RETRY INITIALIZING SECTION *****/
-            /* 
-             * If a camera is not available we keep on retrying every 10 seconds
+            /* If a camera is not available we keep on retrying every 10 seconds
              * until it shows up.
              */
             if (cnt->video_dev < 0 &&
                 cnt->currenttime % 10 == 0 && cnt->shots == 0) {
-                MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO,
-                           "%s: Retrying until successful connection with camera");
+                motion_log(LOG_ERR, 0,
+                           "Retrying until successful connection with camera");
                 cnt->video_dev = vid_start(cnt);
 
-                /* 
-                 * If the netcam has different dimensions than in the config file
+                /* if the netcam has different dimensions than in the config file
                  * we need to restart Motion to re-allocate all the buffers
                  */
                 if (cnt->imgs.width != cnt->conf.width || cnt->imgs.height != cnt->conf.height) {
-                    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Camera has finally become available\n"
-                               "Camera image has different width and height"
-                               "from what is in the config file. You should fix that\n"
-                               "Restarting Motion thread to reinitialize all "
-                               "image buffers to new picture dimensions");
+                    motion_log(LOG_ERR, 0, "Camera has finally become available");
+                    motion_log(LOG_ERR, 0, "Camera image has different width and height "
+                                           "from what is in the config file. You should fix that");
+                    motion_log(LOG_ERR, 0, "Restarting Motion thread to reinitialize all "
+                                           "image buffers to new picture dimensions");
                     cnt->conf.width = cnt->imgs.width;
                     cnt->conf.height = cnt->imgs.height;
-                    /* 
-                     * Break out of main loop terminating thread 
-                     * watchdog will start us again 
-                     */
+                    /* Break out of main loop terminating thread 
+                     * watchdog will start us again */
                     break;
                 }
             }
@@ -1339,8 +901,7 @@ static void *motion_loop(void *arg)
 
         /***** MOTION LOOP - IMAGE CAPTURE SECTION *****/
 
-            /* 
-             * Fetch next frame from camera
+            /* Fetch next frame from camera
              * If vid_next returns 0 all is well and we got a new picture
              * Any non zero value is an error.
              * 0 = OK, valid picture
@@ -1358,27 +919,27 @@ static void *motion_loop(void *arg)
                 cnt->connectionlosttime = 0;
 
                 /* If all is well reset missing_frame_counter */
-                if (cnt->missing_frame_counter >= MISSING_FRAMES_TIMEOUT * cnt->conf.frame_limit) {
+                if (cnt->missing_frame_counter >= MISSING_FRAMES_TIMEOUT * cnt->conf.frame_limit) 
                     /* If we previously logged starting a grey image, now log video re-start */
-                    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Video signal re-acquired");
+                    motion_log(LOG_ERR, 0, "Video signal re-acquired");
                     // event for re-acquired video signal can be called here
-                }
+                
+
                 cnt->missing_frame_counter = 0;
 
 #ifdef HAVE_FFMPEG
                 /* Deinterlace the image with ffmpeg, before the image is modified. */
                 if (cnt->conf.ffmpeg_deinterlace) 
                     ffmpeg_deinterlace(cnt->current_image->image, cnt->imgs.width, cnt->imgs.height);
+                
 #endif
 
-                /* 
-                 * Save the newly captured still virgin image to a buffer
+                /* save the newly captured still virgin image to a buffer
                  * which we will not alter with text and location graphics
                  */
                 memcpy(cnt->imgs.image_virgin, cnt->current_image->image, cnt->imgs.size);
 
-                /* 
-                 * If the camera is a netcam we let the camera decide the pace.
+                /* If the camera is a netcam we let the camera decide the pace.
                  * Otherwise we will keep on adding duplicate frames.
                  * By resetting the timer the framerate becomes maximum the rate
                  * of the Netcam.
@@ -1390,10 +951,9 @@ static void *motion_loop(void *arg)
             // FATAL ERROR - leave the thread by breaking out of the main loop    
             } else if (vid_return_code < 0) {
                 /* Fatal error - Close video device */
-                MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Video device fatal error - Closing video device"); 
+                motion_log(LOG_ERR, 0, "Video device fatal error - Closing video device");
                 vid_close(cnt);
-                /* 
-                 * Use virgin image, if we are not able to open it again next loop
+                /* Use virgin image, if we are not able to open it again next loop
                  * a gray image with message is applied
                  * flag lost_connection
                  */
@@ -1408,44 +968,21 @@ static void *motion_loop(void *arg)
             */            
             } else { 
 
-                MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: vid_return_code %d", 
-                           vid_return_code);
+                if (debug_level >= CAMERA_VERBOSE)
+                    motion_log(-1, 0, "vid_return_code %d", vid_return_code);
 
-                /* 
-                 * Netcams that change dimensions while Motion is running will
-                 * require that Motion restarts to reinitialize all the many
-                 * buffers inside Motion. It will be a mess to try and recover any
-                 * other way
-                 */
-                if (vid_return_code == NETCAM_RESTART_ERROR) {
-                    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Restarting Motion thread to reinitialize all "
-                               "image buffers");
-                    /* 
-                     * Break out of main loop terminating thread 
-                     * watchdog will start us again 
-                     * Set lost_connection flag on 
-                     */
-
-                    cnt->lost_connection = 1;
-                    break;
-                }
-
-                /* 
-                 * First missed frame - store timestamp 
-                 * Don't reset time when thread restarts
-                 */
+                /* First missed frame - store timestamp 
+                 * Don't reset time when thread restarts*/
                 if (cnt->connectionlosttime == 0)
                     cnt->connectionlosttime = cnt->currenttime;
 
-                /* 
-                 * Increase missing_frame_counter
+                /* Increase missing_frame_counter
                  * The first MISSING_FRAMES_TIMEOUT seconds we copy previous virgin image
                  * After MISSING_FRAMES_TIMEOUT seconds we put a grey error image in the buffer
                  * If we still have not yet received the initial image from a camera
                  * we go straight for the grey error image.
                  */
                 ++cnt->missing_frame_counter;
-
                 if (cnt->video_dev >= 0 &&
                     cnt->missing_frame_counter < (MISSING_FRAMES_TIMEOUT * cnt->conf.frame_limit)) {
                     memcpy(cnt->current_image->image, cnt->imgs.image_virgin, cnt->imgs.size);
@@ -1468,20 +1005,17 @@ static void *motion_loop(void *arg)
 
                     /* Write error message only once */
                     if (cnt->missing_frame_counter == MISSING_FRAMES_TIMEOUT * cnt->conf.frame_limit) {
-                        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Video signal lost - Adding grey image"); 
+                        motion_log(LOG_ERR, 0, "Video signal lost - Adding grey image");
                         // Event for lost video signal can be called from here
                         event(cnt, EVENT_CAMERA_LOST, NULL, NULL,
                               NULL, cnt->currenttime_tm);
                     }
 
-                    /* 
-                     * If we don't get a valid frame for a long time, try to close/reopen device 
-                     * Only try this when a device is open 
-                     */
+                    /* If we don't get a valid frame for a long time, try to close/reopen device 
+                     * Only try this when a device is open */
                     if ((cnt->video_dev > 0) && 
                         (cnt->missing_frame_counter == (MISSING_FRAMES_TIMEOUT * 4) * cnt->conf.frame_limit)) {
-                        MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Video signal still lost - "
-                                   "Trying to close video device");
+                        motion_log(LOG_ERR, 0, "Video signal still lost - Trying to close video device");
                         vid_close(cnt);
                     }
                 }
@@ -1489,168 +1023,147 @@ static void *motion_loop(void *arg)
 
         /***** MOTION LOOP - MOTION DETECTION SECTION *****/
 
-            /* 
-             * The actual motion detection takes place in the following
+            /* The actual motion detection takes place in the following
              * diffs is the number of pixels detected as changed
              * Make a differences picture in image_out
              *
              * alg_diff_standard is the slower full feature motion detection algorithm
              * alg_diff first calls a fast detection algorithm which only looks at a
-             * fraction of the pixels. If this detects possible motion alg_diff_standard
-             * is called.
+             *   fraction of the pixels. If this detects possible motion alg_diff_standard
+             *   is called.
              */
-            if (cnt->process_thisframe) {
-                if (cnt->threshold && !cnt->pause) {
-                    /* 
-                     * If we've already detected motion and we want to see if there's
-                     * still motion, don't bother trying the fast one first. IF there's
-                     * motion, the alg_diff will trigger alg_diff_standard
-                     * anyway
-                     */
-                    if (cnt->detecting_motion || cnt->conf.setup_mode)
-                        cnt->current_image->diffs = alg_diff_standard(cnt, cnt->imgs.image_virgin);
-                    else
-                        cnt->current_image->diffs = alg_diff(cnt, cnt->imgs.image_virgin);
+            if (cnt->threshold && !cnt->pause) {
+                /* if we've already detected motion and we want to see if there's
+                 * still motion, don't bother trying the fast one first. IF there's
+                 * motion, the alg_diff will trigger alg_diff_standard
+                 * anyway
+                 */
+                if (cnt->detecting_motion || cnt->conf.setup_mode)
+                    cnt->current_image->diffs = alg_diff_standard(cnt, cnt->imgs.image_virgin);
+                else
+                    cnt->current_image->diffs = alg_diff(cnt, cnt->imgs.image_virgin);
 
-                    /* Lightswitch feature - has light intensity changed?
-                     * This can happen due to change of light conditions or due to a sudden change of the camera
-                     * sensitivity. If alg_lightswitch detects lightswitch we suspend motion detection the next
-                     * 5 frames to allow the camera to settle.
-                     * Don't check if we have lost connection, we detect "Lost signal" frame as lightswitch
-                     */
-                    if (cnt->conf.lightswitch > 1 && !cnt->lost_connection) {
-                        if (alg_lightswitch(cnt, cnt->current_image->diffs)) {
-                            MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: Lightswitch detected"); 
+                /* Lightswitch feature - has light intensity changed?
+                 * This can happen due to change of light conditions or due to a sudden change of the camera
+                 * sensitivity. If alg_lightswitch detects lightswitch we suspend motion detection the next
+                 * 5 frames to allow the camera to settle.
+                 * Don't check if we have lost connection, we detect "Lost signal" frame as lightswitch
+                 */
+                if (cnt->conf.lightswitch && !cnt->lost_connection) {
+                    if (alg_lightswitch(cnt, cnt->current_image->diffs)) {
+                        if (cnt->conf.setup_mode)
+                            motion_log(-1, 0, "Lightswitch detected");
 
-                            if (cnt->moved < 5)
-                                cnt->moved = 5;
+                        if (cnt->moved < 5)
+                            cnt->moved = 5;
 
-                            cnt->current_image->diffs = 0;
-                            alg_update_reference_frame(cnt, RESET_REF_FRAME);
-                        }
+                        cnt->current_image->diffs = 0;
+                        alg_update_reference_frame(cnt, RESET_REF_FRAME);
                     }
-
-                    /* 
-                     * Switchfilter feature tries to detect a change in the video signal
-                     * from one camera to the next. This is normally used in the Round
-                     * Robin feature. The algorithm is not very safe.
-                     * The algorithm takes a little time so we only call it when needed
-                     * ie. when feature is enabled and diffs>threshold.
-                     * We do not suspend motion detection like we did for lightswitch
-                     * because with Round Robin this is controlled by roundrobin_skip.
-                     */
-                    if (cnt->conf.switchfilter && cnt->current_image->diffs > cnt->threshold) {
-                        cnt->current_image->diffs = alg_switchfilter(cnt, cnt->current_image->diffs, 
-                                                                     cnt->current_image->image);
-                    
-                        if (cnt->current_image->diffs <= cnt->threshold) {
-                            cnt->current_image->diffs = 0;
-                        
-                            MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: Switchfilter detected");
-                        }
-                    }
-
-                    /* 
-                     * Despeckle feature
-                     * First we run (as given by the despeckle_filter option iterations
-                     * of erode and dilate algorithms.
-                     * Finally we run the labelling feature.
-                     * All this is done in the alg_despeckle code.
-                     */
-                    cnt->current_image->total_labels = 0;
-                    cnt->imgs.largest_label = 0;
-                    olddiffs = 0;
-                
-                    if (cnt->conf.despeckle_filter && cnt->current_image->diffs > 0) {
-                        olddiffs = cnt->current_image->diffs;
-                        cnt->current_image->diffs = alg_despeckle(cnt, olddiffs);
-                    } else if (cnt->imgs.labelsize_max) {
-                        cnt->imgs.labelsize_max = 0; /* Disable labeling if enabled */
-                    }
-
-                } else if (!cnt->conf.setup_mode) {
-                    cnt->current_image->diffs = 0;
                 }
+
+                /* Switchfilter feature tries to detect a change in the video signal
+                 * from one camera to the next. This is normally used in the Round
+                 * Robin feature. The algorithm is not very safe.
+                 * The algorithm takes a little time so we only call it when needed
+                 * ie. when feature is enabled and diffs>threshold.
+                 * We do not suspend motion detection like we did for lightswitch
+                 * because with Round Robin this is controlled by roundrobin_skip.
+                 */
+                if (cnt->conf.switchfilter && cnt->current_image->diffs > cnt->threshold) {
+                    cnt->current_image->diffs = alg_switchfilter(cnt, cnt->current_image->diffs, 
+                                                                 cnt->current_image->image);
+                    
+                    if (cnt->current_image->diffs <= cnt->threshold) {
+                        cnt->current_image->diffs = 0;
+
+                        if (cnt->conf.setup_mode)
+                            motion_log(-1, 0, "Switchfilter detected");
+                    }
+                }
+
+                /* Despeckle feature
+                 * First we run (as given by the despeckle option iterations
+                 * of erode and dilate algorithms.
+                 * Finally we run the labelling feature.
+                 * All this is done in the alg_despeckle code.
+                 */
+                cnt->current_image->total_labels = 0;
+                cnt->imgs.largest_label = 0;
+                olddiffs = 0;
+
+                if (cnt->conf.despeckle && cnt->current_image->diffs > 0) {
+                    olddiffs = cnt->current_image->diffs;
+                    cnt->current_image->diffs = alg_despeckle(cnt, olddiffs);
+                } else if (cnt->imgs.labelsize_max) {
+                    cnt->imgs.labelsize_max = 0; /* Disable labeling if enabled */
+                }    
+
+            } else if (!cnt->conf.setup_mode) {
+                cnt->current_image->diffs = 0;
             }
 
             /* Manipulate smart_mask sensitivity (only every smartmask_ratio seconds) */
-            if ((cnt->smartmask_speed && (cnt->event_nr != cnt->prev_event)) && 
-                (!--smartmask_count)) {
-                alg_tune_smartmask(cnt);
-                smartmask_count = smartmask_ratio;
-            }
-
-            /* 
-             * cnt->moved is set by the tracking code when camera has been asked to move.
-             * When camera is moving we do not want motion to detect motion or we will
-             * get our camera chasing itself like crazy and we will get motion detected
-             * which is not really motion. So we pretend there is no motion by setting
-             * cnt->diffs = 0.
-             * We also pretend to have a moving camera when we start Motion and when light
-             * switch has been detected to allow camera to settle.
-             */
-            if (cnt->moved) {
-                cnt->moved--;
-                cnt->current_image->diffs = 0;
+            if (cnt->smartmask_speed && (cnt->event_nr != cnt->prev_event)) {
+                if (!--smartmask_count) {
+                    alg_tune_smartmask(cnt);
+                    smartmask_count = smartmask_ratio;
+                }
             }
 
         /***** MOTION LOOP - TUNING SECTION *****/
 
-            /* 
-             * If noise tuning was selected, do it now. but only when
+            /* if noise tuning was selected, do it now. but only when
              * no frames have been recorded and only once per second
              */
-            if ((cnt->conf.noise_tune && cnt->shots == 0) &&
-                 (!cnt->detecting_motion && (cnt->current_image->diffs <= cnt->threshold)))
-                alg_noise_tune(cnt, cnt->imgs.image_virgin);
-            
+            if (cnt->conf.noise_tune && cnt->shots == 0) {
+                if (!cnt->detecting_motion && (cnt->current_image->diffs <= cnt->threshold))
+                    alg_noise_tune(cnt, cnt->imgs.image_virgin);
+            }
 
-            /* 
-             * If we are not noise tuning lets make sure that remote controlled
+            /* if we are not noise tuning lets make sure that remote controlled
              * changes of noise_level are used.
              */
-            if (cnt->process_thisframe) {
-                if (!cnt->conf.noise_tune)
-                    cnt->noise = cnt->conf.noise;
+            if (!cnt->conf.noise_tune)
+                cnt->noise = cnt->conf.noise;
 
-                /* 
-                 * threshold tuning if enabled
-                 * if we are not threshold tuning lets make sure that remote controlled
-                 * changes of threshold are used.
-                 */
-                if (cnt->conf.threshold_tune)
-                    alg_threshold_tune(cnt, cnt->current_image->diffs, cnt->detecting_motion);
-                else
-                    cnt->threshold = cnt->conf.max_changes;
+            /* threshold tuning if enabled
+             * if we are not threshold tuning lets make sure that remote controlled
+             * changes of threshold are used.
+             */
+            if (cnt->conf.threshold_tune)
+                alg_threshold_tune(cnt, cnt->current_image->diffs, cnt->detecting_motion);
+            else
+                cnt->threshold = cnt->conf.max_changes;
 
-                /* 
-                 * If motion is detected (cnt->current_image->diffs > cnt->threshold) and before we add text to the pictures
-                 * we find the center and size coordinates of the motion to be used for text overlays and later
-                 * for adding the locate rectangle 
-                 */
-                if (cnt->current_image->diffs > cnt->threshold)
-                    alg_locate_center_size(&cnt->imgs, cnt->imgs.width, cnt->imgs.height, &cnt->current_image->location);
+            /* If motion is detected (cnt->current_image->diffs > cnt->threshold) and before we add text to the pictures
+               we find the center and size coordinates of the motion to be used for text overlays and later
+               for adding the locate rectangle */
+            if (cnt->current_image->diffs > cnt->threshold)
+                 alg_locate_center_size(&cnt->imgs, cnt->imgs.width, cnt->imgs.height, 
+                                        &cnt->current_image->location);
 
-                /* 
-                 * Update reference frame. 
-                 * micro-lighswitch: trying to auto-detect lightswitch events. 
-                 * frontdoor illumination. Updates are rate-limited to 3 per second at   
-                 * framerates above 5fps to save CPU resources and to keep sensitivity   
-                 * at a constant level.                                                  
-                 */
+            /* Update reference frame. */
+            /* micro-lighswitch: e.g. neighbors cat switched on the motion sensitive *
+             * frontdoor illumination. Updates are rate-limited to 3 per second at   *
+             * framerates above 5fps to save CPU resources and to keep sensitivity   *
+             * at a constant level.                                                  *
+             */
+            ref_frame_limit++;
+            if (ref_frame_limit >= (cnt->lastrate / 3)) {
+                ref_frame_limit = 0;
 
-                if ((cnt->current_image->diffs > cnt->threshold) && (cnt->conf.lightswitch == 1) &&
-                    (cnt->lightswitch_framecounter < (cnt->lastrate * 2)) && /* two seconds window only */
-                    /* number of changed pixels almost the same in two consecutive frames and */
+                if ((cnt->current_image->diffs > cnt->threshold) && 
+                    (cnt->lightswitch_framecounter < (cnt->lastrate * 2)) && /* two seconds window */
                     ((abs(previous_diffs - cnt->current_image->diffs)) < (previous_diffs / 15)) &&
-                    /* center of motion in about the same place ? */
                     ((abs(cnt->current_image->location.x - previous_location_x)) <= (cnt->imgs.width / 150)) &&
                     ((abs(cnt->current_image->location.y - previous_location_y)) <= (cnt->imgs.height / 150))) {
                     alg_update_reference_frame(cnt, RESET_REF_FRAME);
                     cnt->current_image->diffs = 0;
                     cnt->lightswitch_framecounter = 0;
+                    if (cnt->conf.setup_mode)
+                        motion_log(-1, 0, "micro-lightswitch!");
 
-                    MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: micro-lightswitch!"); 
                 } else {
                     alg_update_reference_frame(cnt, UPDATE_REF_FRAME);
                 }
@@ -1662,26 +1175,23 @@ static void *motion_loop(void *arg)
 
         /***** MOTION LOOP - TEXT AND GRAPHICS OVERLAY SECTION *****/
 
-            /* 
-             * Some overlays on top of the motion image
+            /* Some overlays on top of the motion image
              * Note that these now modifies the cnt->imgs.out so this buffer
              * can no longer be used for motion detection features until next
              * picture frame is captured.
              */
 
             /* Smartmask overlay */
-            if (cnt->smartmask_speed && (cnt->conf.motion_img || cnt->conf.ffmpeg_output_debug || 
-                cnt->conf.setup_mode))
+            if (cnt->smartmask_speed && (cnt->conf.motion_img || cnt->conf.ffmpeg_cap_motion || cnt->conf.setup_mode))
                 overlay_smartmask(cnt, cnt->imgs.out);
 
             /* Largest labels overlay */
-            if (cnt->imgs.largest_label && (cnt->conf.motion_img || cnt->conf.ffmpeg_output_debug || 
-                cnt->conf.setup_mode))
+            if (cnt->imgs.largest_label && (cnt->conf.motion_img || cnt->conf.ffmpeg_cap_motion || cnt->conf.setup_mode))
                 overlay_largest_label(cnt, cnt->imgs.out);
 
+
             /* Fixed mask overlay */
-            if (cnt->imgs.mask && (cnt->conf.motion_img || cnt->conf.ffmpeg_output_debug || 
-                cnt->conf.setup_mode))
+            if (cnt->imgs.mask && (cnt->conf.motion_img || cnt->conf.ffmpeg_cap_motion || cnt->conf.setup_mode))
                 overlay_fixed_mask(cnt, cnt->imgs.out);
 
             /* Initialize the double sized characters if needed. */
@@ -1701,18 +1211,15 @@ static void *motion_loop(void *arg)
                 else
                     sprintf(tmp, "-");
 
-                draw_text(cnt->current_image->image, cnt->imgs.width - 10, 10, 
-                          cnt->imgs.width, tmp, cnt->conf.text_double);
+                draw_text(cnt->current_image->image, cnt->imgs.width - 10, 10, cnt->imgs.width, 
+                          tmp, cnt->conf.text_double);
             }
 
-            /* 
-             * Add changed pixels to motion-images (for stream) in setup_mode
-             * and always overlay smartmask (not only when motion is detected) 
-             */
+            /* Add changed pixels to motion-images (for webcam) in setup_mode
+               and always overlay smartmask (not only when motion is detected) */
             if (cnt->conf.setup_mode) {
                 char tmp[PATH_MAX];
-                sprintf(tmp, "D:%5d L:%3d N:%3d", cnt->current_image->diffs, 
-                        cnt->current_image->total_labels, cnt->noise);
+                sprintf(tmp, "D:%5d L:%3d N:%3d", cnt->current_image->diffs, cnt->current_image->total_labels, cnt->noise);
                 draw_text(cnt->imgs.out, cnt->imgs.width - 10, cnt->imgs.height - 30 * text_size_factor,
                           cnt->imgs.width, tmp, cnt->conf.text_double);
                 sprintf(tmp, "THREAD %d SETUP", cnt->threadnr);
@@ -1723,19 +1230,16 @@ static void *motion_loop(void *arg)
             /* Add text in lower left corner of the pictures */
             if (cnt->conf.text_left) {
                 char tmp[PATH_MAX];
-                mystrftime(cnt, tmp, sizeof(tmp), cnt->conf.text_left, 
-                           &cnt->current_image->timestamp_tm, NULL, 0);
-                draw_text(cnt->current_image->image, 10, cnt->imgs.height - 10 * text_size_factor, 
-                          cnt->imgs.width, tmp, cnt->conf.text_double);
+                mystrftime(cnt, tmp, sizeof(tmp), cnt->conf.text_left, &cnt->current_image->timestamp_tm, NULL, 0);
+                draw_text(cnt->current_image->image, 10, cnt->imgs.height - 10 * text_size_factor, cnt->imgs.width,
+                          tmp, cnt->conf.text_double);
             }
 
             /* Add text in lower right corner of the pictures */
             if (cnt->conf.text_right) {
                 char tmp[PATH_MAX];
-                mystrftime(cnt, tmp, sizeof(tmp), cnt->conf.text_right, 
-                           &cnt->current_image->timestamp_tm, NULL, 0);
-                draw_text(cnt->current_image->image, cnt->imgs.width - 10, 
-                          cnt->imgs.height - 10 * text_size_factor,
+                mystrftime(cnt, tmp, sizeof(tmp), cnt->conf.text_right, &cnt->current_image->timestamp_tm, NULL, 0);
+                draw_text(cnt->current_image->image, cnt->imgs.width - 10, cnt->imgs.height - 10 * text_size_factor,
                           cnt->imgs.width, tmp, cnt->conf.text_double);
             }
 
@@ -1746,36 +1250,13 @@ static void *motion_loop(void *arg)
                 /* flag this image, it have motion */
                 cnt->current_image->flags |= IMAGE_MOTION;
                 cnt->lightswitch_framecounter++; /* micro lightswitch */
-            } else { 
+            } else {
                 cnt->lightswitch_framecounter = 0;
             }    
 
-            /* 
-             * If motion has been detected we take action and start saving
-             * pictures and movies etc by calling motion_detected().
-             * Is emulate_motion enabled we always call motion_detected()
-             * If post_capture is enabled we also take care of this in the this
-             * code section.
-             */
-            if (cnt->conf.emulate_motion && (cnt->startup_frames == 0)) {
-                cnt->detecting_motion = 1;
-                MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: Emulating motion");
-#ifdef HAVE_FFMPEG
-                if (cnt->ffmpeg_output || (cnt->conf.useextpipe && cnt->extpipe)) {
-#else
-                if (cnt->conf.useextpipe && cnt->extpipe) {
-#endif
-                    /* Setup the postcap counter */
-                    cnt->postcap = cnt->conf.post_capture;
-                    MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: (Em) Init post capture %d", 
-                               cnt->postcap);
-                }
 
-                cnt->current_image->flags |= (IMAGE_TRIGGER | IMAGE_SAVE);
-                motion_detected(cnt, cnt->video_dev, cnt->current_image);
-            } else if ((cnt->current_image->flags & IMAGE_MOTION) && (cnt->startup_frames == 0)) {
-                /* 
-                 * Did we detect motion (like the cat just walked in :) )?
+            if ((cnt->current_image->flags & IMAGE_MOTION) && (cnt->startup_frames == 0)) {
+                /* Did we detect motion (like the cat just walked in :) )?
                  * If so, ensure the motion is sustained if minimum_motion_frames
                  */
 
@@ -1783,8 +1264,7 @@ static void *motion_loop(void *arg)
                 int frame_count = 0;
                 int pos = cnt->imgs.image_ring_in;
 
-                for (i = 0; i < cnt->conf.minimum_motion_frames; i++) {
-                
+                for(i = 0; i < cnt->conf.minimum_motion_frames; i++) {
                     if (cnt->imgs.image_ring[pos].flags & IMAGE_MOTION)
                         frame_count++;
 
@@ -1792,56 +1272,37 @@ static void *motion_loop(void *arg)
                         pos = cnt->imgs.image_ring_size-1;
                     else 
                         pos--;
+                    
                 }
 
                 if (frame_count >= cnt->conf.minimum_motion_frames) {
-
                     cnt->current_image->flags |= (IMAGE_TRIGGER | IMAGE_SAVE);
                     cnt->detecting_motion = 1;
-
                     /* Setup the postcap counter */
                     cnt->postcap = cnt->conf.post_capture;
-                    MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: Setup post capture %d", 
-                               cnt->postcap);
-
                     /* Mark all images in image_ring to be saved */
-                    for (i = 0; i < cnt->imgs.image_ring_size; i++) 
-                        cnt->imgs.image_ring[i].flags |= IMAGE_SAVE;
+
+                    //for(i = 0; i < cnt->imgs.image_ring_size; i++) 
+		    //  if (i ==0 ) cnt->imgs.image_ring[i].flags = IMAGE_SAVE;
+
                     
-                } else if ((cnt->postcap) && 
-#ifdef HAVE_FFMPEG
-                           (cnt->ffmpeg_output || (cnt->conf.useextpipe && cnt->extpipe))) {
-#else
-                           (cnt->conf.useextpipe && cnt->extpipe)) {			
-#endif 
-                   /* we have motion in this frame, but not enought frames for trigger. Check postcap */
+                } else if (cnt->postcap) { /* we have motion in this frame, but not enought frames for trigger. Check postcap */
                     cnt->current_image->flags |= (IMAGE_POSTCAP | IMAGE_SAVE);
                     cnt->postcap--;
-                    MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: post capture %d", 
-                               cnt->postcap);
                 } else {
-                    cnt->current_image->flags |= IMAGE_PRECAP;
+                    if (frame_count == cnt->conf.minimum_motion_frames-1)
+		      cnt->current_image->flags |= IMAGE_PRECAP;
                 }
 
                 /* Always call motion_detected when we have a motion image */
                 motion_detected(cnt, cnt->video_dev, cnt->current_image);
-            } else if ((cnt->postcap) && 
-#ifdef HAVE_FFMPEG
-                      (cnt->ffmpeg_output || (cnt->conf.useextpipe && cnt->extpipe))) {
-#else
-                      (cnt->conf.useextpipe && cnt->extpipe)) {	
-#endif
+            } else if (cnt->postcap) {
                 /* No motion, doing postcap */
                 cnt->current_image->flags |= (IMAGE_POSTCAP | IMAGE_SAVE);
                 cnt->postcap--;
-                MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: post capture %d", 
-                           cnt->postcap);
             } else {
                 /* Done with postcap, so just have the image in the precap buffer */
                 cnt->current_image->flags |= IMAGE_PRECAP;
-                /* gapless movie feature */
-                if ((cnt->conf.event_gap == 0) && (cnt->detecting_motion == 1))
-                    cnt->makemovie = 1;
                 cnt->detecting_motion = 0;
             }
 
@@ -1850,16 +1311,16 @@ static void *motion_loop(void *arg)
                 cnt->lasttime = cnt->current_image->timestamp;
             
 
-            /* 
-             * Simple hack to recognize motion in a specific area 
-             * Do we need a new coversion specifier as well?? 
-             */
+            /* Simple hack to recognize motion in a specific area */
+            /* Do we need a new coversion specifier as well?? */
             if ((cnt->conf.area_detect) && (cnt->event_nr != area_once) && 
                 (cnt->current_image->flags & IMAGE_TRIGGER)) {
+
                 j = strlen(cnt->conf.area_detect);
-                
+
                 for (i = 0; i < j; i++) {
                     z = cnt->conf.area_detect[i] - 49; /* 1 becomes 0 */
+
                     if ((z >= 0) && (z < 9)) {
                         if (cnt->current_image->location.x > area_minx[z] &&
                             cnt->current_image->location.x < area_maxx[z] &&
@@ -1868,51 +1329,33 @@ static void *motion_loop(void *arg)
                             event(cnt, EVENT_AREA_DETECTED, NULL, NULL,
                                   NULL, cnt->currenttime_tm);
                             area_once = cnt->event_nr; /* Fire script only once per event */
+                            
+                            if (cnt->conf.setup_mode)
+                                motion_log(-1, 0, "Motion in area %d detected.\n", z+1);
 
-                            MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO, "%s: Motion in area %d detected.",
-                                       z + 1);
                             break;
                         }
                     }
                 }
             }
             
-            /* 
-             * Is the movie too long? Then make movies
-             * First test for max_movie_time
+            /* Is the mpeg movie to long? Then make movies
+             * First test for max mpegtime
              */
-            if ((cnt->conf.max_movie_time && cnt->event_nr == cnt->prev_event) &&
-                (cnt->currenttime - cnt->eventtime >= cnt->conf.max_movie_time))
-                cnt->makemovie = 1;
+            if (cnt->conf.maxmpegtime && cnt->event_nr == cnt->prev_event)
+                if (cnt->currenttime - cnt->eventtime >= cnt->conf.maxmpegtime)
+                    cnt->makemovie = 1;
 
-            /* 
-             * Now test for quiet longer than 'gap' OR make movie as decided in
+            /* Now test for quiet longer than 'gap' OR make movie as decided in
              * previous statement.
              */
-            if (((cnt->currenttime - cnt->lasttime >= cnt->conf.event_gap) && cnt->conf.event_gap > 0) || 
-                  cnt->makemovie) {
+            if (((cnt->currenttime - cnt->lasttime >= cnt->conf.gap) && cnt->conf.gap > 0) || cnt->makemovie) {
                 if (cnt->event_nr == cnt->prev_event || cnt->makemovie) {
-
-                    /* Flush image buffer */
-                    process_image_ring(cnt, IMAGE_BUFFER_FLUSH);
-
-                    /* Save preview_shot here at the end of event */
-                    if (cnt->imgs.preview_image.diffs) {
-                        preview_save(cnt);
-                        cnt->imgs.preview_image.diffs = 0;
-                    }
 
                     event(cnt, EVENT_ENDMOTION, NULL, NULL, NULL, cnt->currenttime_tm);
 
-                    /* 
-                     * If tracking is enabled we center our camera so it does not
-                     * point to a place where it will miss the next action
-                     */
-                    if (cnt->track.type)
-                        cnt->moved = track_center(cnt, cnt->video_dev, 0, 0, 0);
-
-                    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: End of event %d", 
-                               cnt->event_nr);
+                    if (cnt->conf.setup_mode == 1)
+		      motion_log(-1, 0, "End of event %d", cnt->event_nr);
 
                     cnt->makemovie = 0;
                     /* Reset post capture */
@@ -1922,29 +1365,27 @@ static void *motion_loop(void *arg)
                     cnt->event_nr++;
                     cnt->lightswitch_framecounter = 0;
 
-                    /* 
-                     * And we unset the text_event_string to avoid that buffered
+                    /* And we unset the text_event_string to avoid that buffered
                      * images get a timestamp from previous event.
                      */
                     cnt->text_event_string[0] = '\0';
                 }
             }
 
-            /* Save/send to movie some images */
-            process_image_ring(cnt, 2);
 
         /***** MOTION LOOP - SETUP MODE CONSOLE OUTPUT SECTION *****/
 
-            /* If CAMERA_VERBOSE enabled output some numbers to console */
+            /* If setup_mode enabled output some numbers to console */
             if (cnt->conf.setup_mode) {
                 char msg[1024] = "\0";
                 char part[100];
 
-                if (cnt->conf.despeckle_filter) {
+                if (cnt->conf.despeckle) {
                     snprintf(part, 99, "Raw changes: %5d - changes after '%s': %5d",
-                             olddiffs, cnt->conf.despeckle_filter, cnt->current_image->diffs);
+                             olddiffs, cnt->conf.despeckle, cnt->current_image->diffs);
                     strcat(msg, part);
-                    if (strchr(cnt->conf.despeckle_filter, 'l')) {
+
+                    if (strchr(cnt->conf.despeckle, 'l')){
                         sprintf(part, " - labels: %3d", cnt->current_image->total_labels);
                         strcat(msg, part);
                     }
@@ -1963,15 +1404,14 @@ static void *motion_loop(void *arg)
                     strcat(msg, part);
                 }
 
-                MOTION_LOG(INF, TYPE_ALL, NO_ERRNO, "%s: %s", msg);
+                motion_log(-1, 0, "%s", msg);
             }
 
         } /* get_image end */
 
     /***** MOTION LOOP - SNAPSHOT FEATURE SECTION *****/
 
-        /* 
-         * Did we get triggered to make a snapshot from control http? Then shoot a snap
+        /* Did we get triggered to make a snapshot from control http? Then shoot a snap
          * If snapshot_interval is not zero and time since epoch MOD snapshot_interval = 0 then snap
          * We actually allow the time to run over the interval in case we have a delay
          * from slow camera.
@@ -1983,9 +1423,10 @@ static void *motion_loop(void *arg)
         time_current_frame = cnt->currenttime;
 
         if ((cnt->conf.snapshot_interval > 0 && cnt->shots == 0 &&
-             time_current_frame % cnt->conf.snapshot_interval <= time_last_frame % cnt->conf.snapshot_interval) ||
-             cnt->snapshot) {
-            event(cnt, EVENT_IMAGE_SNAPSHOT, cnt->current_image->image, NULL, NULL, &cnt->current_image->timestamp_tm);
+            time_current_frame % cnt->conf.snapshot_interval <= time_last_frame % cnt->conf.snapshot_interval) ||
+            cnt->snapshot) {
+            event(cnt, EVENT_IMAGE_SNAPSHOT, cnt->current_image->image, NULL, NULL, 
+                  &cnt->current_image->timestamp_tm);
             cnt->snapshot = 0;
         }
 
@@ -1994,10 +1435,11 @@ static void *motion_loop(void *arg)
 
 #ifdef HAVE_FFMPEG
 
+
+
         if (cnt->conf.timelapse) {
 
-            /* 
-             * Check to see if we should start a new timelapse file. We start one when
+            /* Check to see if we should start a new timelapse file. We start one when
              * we are on the first shot, and and the seconds are zero. We must use the seconds
              * to prevent the timelapse file from getting reset multiple times during the minute.
              */
@@ -2005,56 +1447,53 @@ static void *motion_loop(void *arg)
                 (time_current_frame % 60 < time_last_frame % 60) &&
                 cnt->shots == 0) {
 
-                if (strcasecmp(cnt->conf.timelapse_mode, "manual") == 0) {
+                if (strcasecmp(cnt->conf.timelapse_mode,"manual") == 0) {
                     ;/* No action */
 
                 /* If we are daily, raise timelapseend event at midnight */
                 } else if (strcasecmp(cnt->conf.timelapse_mode, "daily") == 0) {
                     if (cnt->current_image->timestamp_tm.tm_hour == 0)
-                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, &cnt->current_image->timestamp_tm);
+                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, 
+                              &cnt->current_image->timestamp_tm);
 
                 /* handle the hourly case */
                 } else if (strcasecmp(cnt->conf.timelapse_mode, "hourly") == 0) {
-                    event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, &cnt->current_image->timestamp_tm);
-                
-                /* If we are weekly-sunday, raise timelapseend event at midnight on sunday */    
+                    event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, 
+                          &cnt->current_image->timestamp_tm);
+
+                /* If we are weekly-sunday, raise timelapseend event at midnight on sunday */
                 } else if (strcasecmp(cnt->conf.timelapse_mode, "weekly-sunday") == 0) {
-                    if (cnt->current_image->timestamp_tm.tm_wday == 0 && 
-                        cnt->current_image->timestamp_tm.tm_hour == 0)
-                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, 
-                              &cnt->current_image->timestamp_tm);
+                    if (cnt->current_image->timestamp_tm.tm_wday == 0 && cnt->current_image->timestamp_tm.tm_hour == 0)
+                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, &cnt->current_image->timestamp_tm);
+
                 /* If we are weekly-monday, raise timelapseend event at midnight on monday */    
                 } else if (strcasecmp(cnt->conf.timelapse_mode, "weekly-monday") == 0) {
-                    if (cnt->current_image->timestamp_tm.tm_wday == 1 && 
-                        cnt->current_image->timestamp_tm.tm_hour == 0)
-                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, 
-                              &cnt->current_image->timestamp_tm);
+                    if (cnt->current_image->timestamp_tm.tm_wday == 1 && cnt->current_image->timestamp_tm.tm_hour == 0)
+                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, &cnt->current_image->timestamp_tm);
+
                 /* If we are monthly, raise timelapseend event at midnight on first day of month */    
                 } else if (strcasecmp(cnt->conf.timelapse_mode, "monthly") == 0) {
-                    if (cnt->current_image->timestamp_tm.tm_mday == 1 && 
-                        cnt->current_image->timestamp_tm.tm_hour == 0)
-                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, 
-                              &cnt->current_image->timestamp_tm);
+                    if (cnt->current_image->timestamp_tm.tm_mday == 1 && cnt->current_image->timestamp_tm.tm_hour == 0)
+                        event(cnt, EVENT_TIMELAPSEEND, NULL, NULL, NULL, &cnt->current_image->timestamp_tm);
+
                 /* If invalid we report in syslog once and continue in manual mode */    
                 } else {
-                    MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Invalid timelapse_mode argument '%s'",
+                    motion_log(LOG_ERR, 0, "Invalid timelapse_mode argument '%s'",
                                cnt->conf.timelapse_mode);
-                    MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO, "%:s Defaulting to manual timelapse mode"); 
+                    motion_log(LOG_ERR, 0, "Defaulting to manual timelapse mode");
                     conf_cmdparse(&cnt, (char *)"ffmpeg_timelapse_mode",(char *)"manual");
                 }
             }
 
-            /* 
-             * If ffmpeg timelapse is enabled and time since epoch MOD ffmpeg_timelaps = 0
-             * add a timelapse frame to the timelapse movie.
+            /* If ffmpeg timelapse is enabled and time since epoch MOD ffmpeg_timelaps = 0
+             * add a timelapse frame to the timelapse mpeg.
              */
-            if (cnt->shots == 0 && time_current_frame % cnt->conf.timelapse <= 
-                time_last_frame % cnt->conf.timelapse)
+            if (cnt->shots == 0 &&
+                time_current_frame % cnt->conf.timelapse <= time_last_frame % cnt->conf.timelapse)
                 event(cnt, EVENT_TIMELAPSE, cnt->current_image->image, NULL, NULL, 
                       &cnt->current_image->timestamp_tm);
         } else if (cnt->ffmpeg_timelapse) {
-        /* 
-         * If timelapse movie is in progress but conf.timelapse is zero then close timelapse file
+        /* if timelapse mpeg is in progress but conf.timelapse is zero then close timelapse file
          * This is an important feature that allows manual roll-over of timelapse file using the http
          * remote control via a cron job.
          */
@@ -2068,117 +1507,27 @@ static void *motion_loop(void *arg)
 
     /***** MOTION LOOP - VIDEO LOOPBACK SECTION *****/
 
-        /* 
-         * Feed last image and motion image to video device pipes and the stream clients
-         * In setup mode we send the special setup mode image to both stream and vloopback pipe
+        /* feed last image and motion image to video device pipes and the webcam clients
+         * In setup mode we send the special setup mode image to both webcam and vloopback pipe
          * In normal mode we feed the latest image to vloopback device and we send
-         * the image to the stream. We always send the first image in a second to the stream.
-         * Other image are sent only when the config option stream_motion is off
-         * The result is that with stream_motion on the stream stream is normally at the minimal
+         * the image to the webcam. We always send the first image in a second to the webcam.
+         * Other image are sent only when the config option webcam_motion is off
+         * The result is that with webcam_motion on the webcam stream is normally at the minimal
          * 1 frame per second but the minute motion is detected the motion_detected() function
-         * sends all detected pictures to the stream except the 1st per second which is already sent.
+         * sends all detected pictures to the webcam except the 1st per second which is already sent.
          */
         if (cnt->conf.setup_mode) {
             event(cnt, EVENT_IMAGE, cnt->imgs.out, NULL, &cnt->pipe, cnt->currenttime_tm);
-            event(cnt, EVENT_STREAM, cnt->imgs.out, NULL, NULL, cnt->currenttime_tm);
-#ifdef HAVE_SDL
-            if (cnt_list[0]->conf.sdl_threadnr == cnt->threadnr)
-                event(cnt, EVENT_SDL_PUT, cnt->imgs.out, NULL, NULL, cnt->currenttime_tm);
-#endif
         } else {
-            event(cnt, EVENT_IMAGE, cnt->current_image->image, NULL, 
-                  &cnt->pipe, &cnt->current_image->timestamp_tm);
+            event(cnt, EVENT_IMAGE, cnt->current_image->image, NULL, &cnt->pipe, 
+                  &cnt->current_image->timestamp_tm);
 
-            if (!cnt->conf.stream_motion || cnt->shots == 1)
-                event(cnt, EVENT_STREAM, cnt->current_image->image, NULL, NULL, 
-                      &cnt->current_image->timestamp_tm);
-#ifdef HAVE_SDL
-            if (cnt_list[0]->conf.sdl_threadnr == cnt->threadnr)
-                event(cnt, EVENT_SDL_PUT, cnt->current_image->image, NULL, NULL,
-                      &cnt->current_image->timestamp_tm);
-#endif
         }
 
         event(cnt, EVENT_IMAGEM, cnt->imgs.out, NULL, &cnt->mpipe, cnt->currenttime_tm);
-
-
-    /***** MOTION LOOP - ONCE PER SECOND PARAMETER UPDATE SECTION *****/
-
-        /* Check for some config parameter changes but only every second */
-        if (cnt->shots == 0) {
-            if (strcasecmp(cnt->conf.output_pictures, "on") == 0)
-                cnt->new_img = NEWIMG_ON;
-            else if (strcasecmp(cnt->conf.output_pictures, "first") == 0)
-                cnt->new_img = NEWIMG_FIRST;
-            else if (strcasecmp(cnt->conf.output_pictures, "best") == 0)
-                cnt->new_img = NEWIMG_BEST;
-            else if (strcasecmp(cnt->conf.output_pictures, "center") == 0)
-                cnt->new_img = NEWIMG_CENTER;
-            else
-                cnt->new_img = NEWIMG_OFF;
-
-            if (strcasecmp(cnt->conf.locate_motion_mode, "on") == 0)
-                cnt->locate_motion_mode = LOCATE_ON;
-            else if (strcasecmp(cnt->conf.locate_motion_mode, "preview") == 0)
-                cnt->locate_motion_mode = LOCATE_PREVIEW;
-            else
-                cnt->locate_motion_mode = LOCATE_OFF;
-
-            if (strcasecmp(cnt->conf.locate_motion_style, "box") == 0)
-                cnt->locate_motion_style = LOCATE_BOX;
-            else if (strcasecmp(cnt->conf.locate_motion_style, "redbox") == 0)
-                cnt->locate_motion_style = LOCATE_REDBOX;
-            else if (strcasecmp(cnt->conf.locate_motion_style, "cross") == 0)
-                cnt->locate_motion_style = LOCATE_CROSS;
-            else if (strcasecmp(cnt->conf.locate_motion_style, "redcross") == 0)
-                cnt->locate_motion_style = LOCATE_REDCROSS;
-            else
-                cnt->locate_motion_style = LOCATE_BOX;
-
-            /* Sanity check for smart_mask_speed, silly value disables smart mask */
-            if (cnt->conf.smart_mask_speed < 0 || cnt->conf.smart_mask_speed > 10)
-                cnt->conf.smart_mask_speed = 0;
-
-            /* Has someone changed smart_mask_speed or framerate? */
-            if (cnt->conf.smart_mask_speed != cnt->smartmask_speed || 
-                smartmask_lastrate != cnt->lastrate) {
-                if (cnt->conf.smart_mask_speed == 0) {
-                    memset(cnt->imgs.smartmask, 0, cnt->imgs.motionsize);
-                    memset(cnt->imgs.smartmask_final, 255, cnt->imgs.motionsize);
-                }
-
-                smartmask_lastrate = cnt->lastrate;
-                cnt->smartmask_speed = cnt->conf.smart_mask_speed;
-                /* 
-                 * Decay delay - based on smart_mask_speed (framerate independent)
-                 * This is always 5*smartmask_speed seconds 
-                 */
-                smartmask_ratio = 5 * cnt->lastrate * (11 - cnt->smartmask_speed);
-            }
-
-#if defined(HAVE_MYSQL) || defined(HAVE_PGSQL) || defined(HAVE_SQLITE3)
-
-            /* 
-             * Set the sql mask file according to the SQL config options
-             * We update it for every frame in case the config was updated
-             * via remote control.
-             */
-            cnt->sql_mask = cnt->conf.sql_log_image * (FTYPE_IMAGE + FTYPE_IMAGE_MOTION) +
-                            cnt->conf.sql_log_snapshot * FTYPE_IMAGE_SNAPSHOT +
-                            cnt->conf.sql_log_movie * (FTYPE_MPEG + FTYPE_MPEG_MOTION) +
-                            cnt->conf.sql_log_timelapse * FTYPE_MPEG_TIMELAPSE;
-#endif /* defined(HAVE_MYSQL) || defined(HAVE_PGSQL) || defined(HAVE_SQLITE3) */
-
-        }
-
-
-    /***** MOTION LOOP - FRAMERATE TIMING AND SLEEPING SECTION *****/
-
-
-        /* 
-         * Work out expected frame rate based on config setting which may
-         * have changed from http-control 
-         */
+	
+        /* Work out expected frame rate based on config setting which may
+           have changed from http-control */
         if (cnt->conf.frame_limit)
             required_frame_time = 1000000L / cnt->conf.frame_limit;
         else
@@ -2188,9 +1537,8 @@ static void *motion_loop(void *arg)
         gettimeofday(&tv2, NULL);
         elapsedtime = (tv2.tv_usec + 1000000L * tv2.tv_sec) - timenow;
 
-        /* 
-         * Update history buffer but ignore first pass as timebefore
-         * variable will be inaccurate
+        /* Update history buffer but ignore first pass as timebefore
+           variable will be inaccurate
          */
         if (passflag)
             rolling_average_data[rolling_frame] = timenow-timebefore;
@@ -2226,8 +1574,7 @@ static void *motion_loop(void *arg)
         }
     }
 
-    /* 
-     * END OF MOTION MAIN LOOP
+    /* END OF MOTION MAIN LOOP
      * If code continues here it is because the thread is exiting or restarting
      */
 err:
@@ -2235,7 +1582,7 @@ err:
         free(rolling_average_data);
 
     cnt->lost_connection = 1;
-    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Thread exiting");
+    motion_log(-1, 0, "Thread exiting");
 
     motion_cleanup(cnt);
 
@@ -2244,115 +1591,12 @@ err:
     pthread_mutex_unlock(&global_lock);
 
     if (!cnt->restart)
-        cnt->watchdog = WATCHDOG_OFF;
+        cnt->watchdog=WATCHDOG_OFF;
 
     cnt->running = 0;
     cnt->finish = 0;
 
     pthread_exit(NULL);
-}
-
-/**
- * become_daemon
- *
- *   Turns Motion into a daemon through forking. The parent process (i.e. the
- *   one initially calling this function) will exit inside this function, while
- *   control will be returned to the child process. Standard input/output are
- *   released properly, and the current directory is set to / in order to not
- *   lock up any file system.
- *
- * Parameters:
- *
- *   cnt - current thread's context struct
- *
- * Returns: nothing
- */
-static void become_daemon(void)
-{
-    int i;
-    FILE *pidf = NULL;    
-    struct sigaction sig_ign_action;
-
-    /* Setup sig_ign_action */
-#ifdef SA_RESTART
-    sig_ign_action.sa_flags = SA_RESTART;
-#else
-    sig_ign_action.sa_flags = 0;
-#endif
-    sig_ign_action.sa_handler = SIG_IGN;
-    sigemptyset(&sig_ign_action.sa_mask);
-
-    /* fork */
-    if (fork()) {
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion going to daemon mode");
-        exit(0);
-    }
-    
-    /* 
-     * Create the pid file if defined, if failed exit
-     * If we fail we report it. If we succeed we postpone the log entry till
-     * later when we have closed stdout. Otherwise Motion hangs in the terminal waiting
-     * for an enter.
-     */
-    if (cnt_list[0]->conf.pid_file) {
-        pidf = myfopen(cnt_list[0]->conf.pid_file, "w+", 0);
-    
-        if (pidf) {
-            (void)fprintf(pidf, "%d\n", getpid());
-            myfclose(pidf);
-        } else {
-            MOTION_LOG(EMG, TYPE_ALL, SHOW_ERRNO, "%s: Exit motion, cannot create process"
-                       " id file (pid file) %s", cnt_list[0]->conf.pid_file);
-            if (ptr_logfile) 
-                myfclose(ptr_logfile);    
-            exit(0);    
-        }
-    }
-
-    /* 
-     * Changing dir to root enables people to unmount a disk
-     * without having to stop Motion 
-     */
-    if (chdir("/")) 
-        MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Could not change directory");
-    
-
-#if (defined(BSD))
-    setpgrp(0, getpid());
-#else
-    setpgrp();
-#endif /* BSD */
-
-    
-    if ((i = open("/dev/tty", O_RDWR)) >= 0) {
-        ioctl(i, TIOCNOTTY, NULL);
-        close(i);
-    }
-
-    setsid();
-    i = open("/dev/null", O_RDONLY);
-
-    if (i != -1) {
-        dup2(i, STDIN_FILENO);
-        close(i);
-    }
-
-    i = open("/dev/null", O_WRONLY);
-
-    if (i != -1) {
-        dup2(i, STDOUT_FILENO);
-        dup2(i, STDERR_FILENO);
-        close(i);
-    }
-    
-    /* Now it is safe to add the PID creation to the logs */
-    if (pidf)
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Created process id file %s. Process ID is %d",
-                   cnt_list[0]->conf.pid_file, getpid());
-    
-    sigaction(SIGTTOU, &sig_ign_action, NULL);
-    sigaction(SIGTTIN, &sig_ign_action, NULL);
-    sigaction(SIGTSTP, &sig_ign_action, NULL);
 }
 
 /**
@@ -2370,8 +1614,7 @@ static void become_daemon(void)
  */
 static void cntlist_create(int argc, char *argv[])
 {
-    /* 
-     * cnt_list is an array of pointers to the context structures cnt for each thread.
+    /* cnt_list is an array of pointers to the context structures cnt for each thread.
      * First we reserve room for a pointer to thread 0's context structure
      * and a NULL pointer which indicates that end of the array of pointers to
      * thread context structures.
@@ -2387,8 +1630,7 @@ static void cntlist_create(int argc, char *argv[])
     /* cnt_list[1] pointing to zero indicates no more thread context structures - they get added later */
     cnt_list[1] = NULL;
 
-    /* 
-     * Command line arguments are being pointed to from cnt_list[0] and we call conf_load which loads
+    /* Command line arguments are being pointed to from cnt_list[0] and we call conf_load which loads
      * the config options from motion.conf, thread config files and the command line.
      */
     cnt_list[0]->conf.argv = argv;
@@ -2413,8 +1655,8 @@ static void motion_shutdown(void)
     int i = -1;
 
     motion_remove_pid();
-
-    while (cnt_list[++i]) 
+    
+    while (cnt_list[++i])
         context_destroy(cnt_list[i]);
     
     free(cnt_list);
@@ -2444,74 +1686,14 @@ static void motion_startup(int daemonize, int argc, char *argv[])
     /* Initialize our global mutex */
     pthread_mutex_init(&global_lock, NULL);
 
-    /* 
-     * Create the list of context structures and load the
+    /* Create the list of context structures and load the
      * configuration.
      */
     cntlist_create(argc, argv);
 
-    if ((cnt_list[0]->conf.log_level > ALL) ||
-        (cnt_list[0]->conf.log_level == 0)) { 
-        cnt_list[0]->conf.log_level = LEVEL_DEFAULT;
-        cnt_list[0]->log_level = cnt_list[0]->conf.log_level;
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Using default log level (%s) (%d)", 
-                   get_log_level_str(cnt_list[0]->log_level), SHOW_LEVEL_VALUE(cnt_list[0]->log_level));
-    } else {
-        cnt_list[0]->log_level = cnt_list[0]->conf.log_level - 1; // Let's make syslog compatible
-    }
-
-    //set_log_level(cnt_list[0]->log_level);   
-
-#ifdef HAVE_SDL
-     MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion "VERSION" Started with SDL support");
-#else
-     MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion "VERSION" Started");
-#endif
-
-    if ((cnt_list[0]->conf.log_file) && (strncmp(cnt_list[0]->conf.log_file, "syslog", 6))) {
-        set_log_mode(LOGMODE_FILE);
-        ptr_logfile = set_logfile(cnt_list[0]->conf.log_file);
-
-        if (ptr_logfile) {
-            set_log_mode(LOGMODE_SYSLOG);
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Logging to file (%s)",  
-                       cnt_list[0]->conf.log_file);
-            set_log_mode(LOGMODE_FILE);
-        } else {
-            MOTION_LOG(EMG, TYPE_ALL, SHOW_ERRNO, "%s: Exit motion, cannot create log file %s",
-                       cnt_list[0]->conf.log_file);
-            exit(0);
-        }
-    } else {
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Logging to syslog");
-    }
-
-    if ((cnt_list[0]->conf.log_type_str == NULL) || 
-        !(cnt_list[0]->log_type = get_log_type(cnt_list[0]->conf.log_type_str))) {
-        cnt_list[0]->log_type = TYPE_DEFAULT;
-        cnt_list[0]->conf.log_type_str = mystrcpy(cnt_list[0]->conf.log_type_str, "ALL");
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Using default log type (%s)",  
-                   get_log_type_str(cnt_list[0]->log_type));
-    }
-
-    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Using log type (%s) log level (%s)", 
-               get_log_type_str(cnt_list[0]->log_type), get_log_level_str(cnt_list[0]->log_level));
-
-    set_log_level(cnt_list[0]->log_level);
-    set_log_type(cnt_list[0]->log_type);
+    motion_log(LOG_INFO, 0, "Motion fucked Started");
 
     initialize_chars();
-
-    if (daemonize) {
-        /* 
-         * If daemon mode is requested, and we're not going into setup mode,
-         * become daemon.
-         */
-        if (cnt_list[0]->daemon && cnt_list[0]->conf.setup_mode == 0) {
-            become_daemon();
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion running as daemon process");
-        }
-    }
 
 #ifndef WITHOUT_V4L
     vid_init();
@@ -2548,8 +1730,8 @@ static void setup_signals(struct sigaction *sig_handler_action, struct sigaction
     sigaction(SIGCHLD, sigchild_action, NULL);
     sigaction(SIGPIPE, sigchild_action, NULL);
     sigaction(SIGALRM, sig_handler_action, NULL);
-    sigaction(SIGHUP, sig_handler_action, NULL);
-    sigaction(SIGINT, sig_handler_action, NULL);
+    sigaction(SIGHUP,  sig_handler_action, NULL);
+    sigaction(SIGINT,  sig_handler_action, NULL);
     sigaction(SIGQUIT, sig_handler_action, NULL);
     sigaction(SIGTERM, sig_handler_action, NULL);
     sigaction(SIGUSR1, sig_handler_action, NULL);
@@ -2571,44 +1753,9 @@ static void start_motion_thread(struct context *cnt, pthread_attr_t *thread_attr
 {
     int i;
 
-    /* 
-     * Check the stream port number for conflicts.
-     * First we check for conflict with the control port.
-     * Second we check for that two threads does not use the same port number
-     * for the stream. If a duplicate port is found the stream feature gets disabled (port = 0)
-     * for this thread and a warning is written to console and syslog.
-     */
+    cnt->conf.webcam_port = 0;
 
-    if (cnt->conf.stream_port != 0) {
-        /* Compare against the control port. */
-        if (cnt_list[0]->conf.webcontrol_port == cnt->conf.stream_port) {
-            MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO,
-                       "%s: Stream port number %d for thread %d conflicts with the control port",
-                       cnt->conf.stream_port, cnt->threadnr);
-            MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO, "%s: Stream feature for thread %d is disabled.", 
-                       cnt->threadnr);
-            cnt->conf.stream_port = 0;
-        }
-
-        /* Compare against stream ports of other threads. */
-        for (i = 1; cnt_list[i]; i++) {
-            if (cnt_list[i] == cnt)
-                continue;
-
-            if (cnt_list[i]->conf.stream_port == cnt->conf.stream_port) {
-                MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO,
-                           "%s: Stream port number %d for thread %d conflicts with thread %d",
-                           cnt->conf.stream_port, cnt->threadnr, cnt_list[i]->threadnr);
-                MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO,
-                           "%s: Stream feature for thread %d is disabled.",  
-                           cnt->threadnr);
-                cnt->conf.stream_port = 0;
-            }
-        }
-    }
-
-    /* 
-     * Update how many threads we have running. This is done within a
+    /* Update how many threads we have running. This is done within a
      * mutex lock to prevent multiple simultaneous updates to
      * 'threads_running'.
      */
@@ -2619,25 +1766,13 @@ static void start_motion_thread(struct context *cnt, pthread_attr_t *thread_attr
     /* Set a flag that we want this thread running */
     cnt->restart = 1;
 
-    /* Give the thread WATCHDOG_TMO to start */
+    /* Give the thread WATCHDOG_TMO seconds to start */
     cnt->watchdog = WATCHDOG_TMO;
 
-    /* Flag it as running outside of the thread, otherwise if the main loop
-     * checked if it is was running before the thread set it to 1, it would
-     * start another thread for this device. */
-    cnt->running = 1;
-
-    /* 
-     * Create the actual thread. Use 'motion_loop' as the thread
+    /* Create the actual thread. Use 'motion_loop' as the thread
      * function.
      */
-    if (pthread_create(&cnt->thread_id, thread_attr, &motion_loop, cnt)) {
-        /* thread create failed, undo running state */
-        cnt->running = 0;
-        pthread_mutex_lock(&global_lock);
-        threads_running--;
-        pthread_mutex_unlock(&global_lock);
-    }
+    pthread_create(&cnt->thread_id, thread_attr, &motion_loop, cnt);
 }
 
 /**
@@ -2659,8 +1794,7 @@ int main (int argc, char **argv)
     pthread_attr_t thread_attr;
     pthread_t thread_id;
 
-    /* 
-     * Setup signals and do some initialization. 1 in the call to
+    /* Setup signals and do some initialization. 1 in the call to
      * 'motion_startup' means that Motion will become a daemon if so has been
      * requested, and argc and argc are necessary for reading the command
      * line options.
@@ -2672,23 +1806,20 @@ int main (int argc, char **argv)
     motion_startup(1, argc, argv);
 
 #ifdef HAVE_FFMPEG
-    /* 
-     * FFMpeg initialization is only performed if FFMpeg support was found
+    /* FFMpeg initialization is only performed if FFMpeg support was found
      * and not disabled during the configure phase.
      */
     ffmpeg_init();
 #endif /* HAVE_FFMPEG */
 
-    /* 
-     * In setup mode, Motion is very communicative towards the user, which
+    /* In setup mode, Motion is very communicative towards the user, which
      * allows the user to experiment with the config parameters in order to
      * optimize motion detection and stuff.
      */
     if (cnt_list[0]->conf.setup_mode)
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion running in setup mode.");
+        motion_log(-1, 0, "Motion running in setup mode.");
 
-    /*
-     * Create and a thread attribute for the threads we spawn later on.
+    /* Create and a thread attribute for the threads we spawn later on.
      * PTHREAD_CREATE_DETACHED means to create threads detached, i.e.
      * their termination cannot be synchronized through 'pthread_join'.
      */
@@ -2700,121 +1831,90 @@ int main (int argc, char **argv)
 
     do {
         if (restart) {
-            /*
-             * Handle the restart situation. Currently the approach is to
+            /* Handle the restart situation. Currently the approach is to
              * cleanup everything, and then initialize everything again
              * (including re-reading the config file(s)).
              */
-            MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO, "%s: Restarting motion.");
             motion_shutdown();
             restart = 0; /* only one reset for now */
+            motion_log(LOG_INFO,0,"motion restarted");
 #ifndef WITHOUT_V4L
-            SLEEP(5, 0); // maybe some cameras needs less time
+            SLEEP(5,0); // maybe some cameras needs less time
 #endif
             motion_startup(0, argc, argv); /* 0 = skip daemon init */
-            MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO, "%s: Motion restarted");
         }
 
-        /* 
-         * Start the motion threads. First 'cnt_list' item is global if 'thread'
+
+        /* Start the motion threads. First 'cnt_list' item is global if 'thread'
          * option is used, so start at 1 then and 0 otherwise.
          */
         for (i = cnt_list[1] != NULL ? 1 : 0; cnt_list[i]; i++) {
             /* If i is 0 it means no thread files and we then set the thread number to 1 */
             cnt_list[i]->threadnr = i ? i : 1;
 
-            if (strcmp(cnt_list[i]->conf_filename, ""))
-                MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Thread %d is from %s", 
-                           cnt_list[i]->threadnr, cnt_list[i]->conf_filename);
+            if (strcmp(cnt_list[i]->conf_filename,"") )
+                motion_log(LOG_INFO, 0, "Thread %d is from %s", cnt_list[i]->threadnr, cnt_list[i]->conf_filename );
 
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Thread %d is device: %s input %d", 
-                       cnt_list[i]->threadnr, cnt_list[i]->conf.netcam_url ? 
-                       cnt_list[i]->conf.netcam_url : cnt_list[i]->conf.video_device,
-                       cnt_list[i]->conf.netcam_url ? -1 : cnt_list[i]->conf.input);
-            
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Stream port %d",  
-                       cnt_list[i]->conf.stream_port);
+            if (cnt_list[0]->conf.setup_mode) {
+                motion_log(-1, 0, "Thread %d is device: %s input %d", cnt_list[i]->threadnr,
+                           cnt_list[i]->conf.netcam_url ? cnt_list[i]->conf.netcam_url : cnt_list[i]->conf.video_device,
+                           cnt_list[i]->conf.netcam_url ? -1 : cnt_list[i]->conf.input
+                          );
+            }
+
+            if (cnt_list[0]->conf.setup_mode)
+                motion_log(LOG_ERR, 0, "Webcam port %d", cnt_list[i]->conf.webcam_port);
 
             start_motion_thread(cnt_list[i], &thread_attr);
         }
 
-#ifdef HAVE_SDL
-        if (cnt_list[0]->conf.sdl_threadnr > 0)
-            sdl_start(cnt_list[cnt_list[1] != NULL ? cnt_list[0]->conf.sdl_threadnr : 0]->conf.width,
-                      cnt_list[cnt_list[1] != NULL ? cnt_list[0]->conf.sdl_threadnr : 0]->conf.height);
-#endif
-
-        /* 
-         * Create a thread for the control interface if requested. Create it
+        /* Create a thread for the control interface if requested. Create it
          * detached and with 'motion_web_control' as the thread function.
          */
-        if (cnt_list[0]->conf.webcontrol_port) {
-            pthread_mutex_lock(&global_lock);
-            threads_running++;
-            /* set outside the loop to avoid thread set vs main thread check */
-            cnt_list[0]->webcontrol_running = 1;
-            pthread_mutex_unlock(&global_lock);
-            if (pthread_create(&thread_id, &thread_attr, &motion_web_control,
-                cnt_list)) {
-                /* thread create failed, undo running state */
-                pthread_mutex_lock(&global_lock);
-                threads_running--;
-                cnt_list[0]->webcontrol_running = 0;
-                pthread_mutex_unlock(&global_lock);
-            }
-        }
 
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Waiting for threads to finish, pid: %d", 
-                   getpid());
+        if (cnt_list[0]->conf.setup_mode)
+            motion_log(-1, 0,"Waiting for threads to finish, pid: %d", getpid());
 
-        /* 
-         * Crude way of waiting for all threads to finish - check the thread
+        /* Crude way of waiting for all threads to finish - check the thread
          * counter (because we cannot do join on the detached threads).
          */
         while (1) {
-            SLEEP(1, 0);
+            SLEEP(1,0);
 
-            /* 
-             * Calculate how many threads are running or wants to run
+            /* Calculate how many threads runnig or wants to run
              * if zero and we want to finish, break out
              */
             int motion_threads_running = 0;
-
             for (i = (cnt_list[1] != NULL ? 1 : 0); cnt_list[i]; i++) {
                 if (cnt_list[i]->running || cnt_list[i]->restart)
                     motion_threads_running++;
             }
-            if (cnt_list[0]->conf.webcontrol_port &&
-                cnt_list[0]->webcontrol_running)
-                motion_threads_running++;
 
-            if (((motion_threads_running == 0) && finish) || 
-                ((motion_threads_running == 0) && (threads_running == 0))) {
-                MOTION_LOG(ALL, TYPE_ALL, NO_ERRNO, "%s: DEBUG-1 threads_running %d motion_threads_running %d "
-                           ", finish %d", threads_running, motion_threads_running, finish);                 
+            if (((motion_threads_running == 0 ) && finish ) || 
+                 ((motion_threads_running == 0 ) && (threads_running == 0)) ){
+                if (debug_level >= CAMERA_DEBUG){
+                         motion_log(LOG_INFO, 0, "DEBUG-1 threads_running %d motion_threads_running %d , finish %d",
+                                            threads_running, motion_threads_running, finish); 
+                }
                 break;
-            }    
+            }
 
             for (i = (cnt_list[1] != NULL ? 1 : 0); cnt_list[i]; i++) {
                 /* Check if threads wants to be restarted */
-                if ((!cnt_list[i]->running) && (cnt_list[i]->restart)) {
-                    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion thread %d restart", 
-                               cnt_list[i]->threadnr);
+                if ((!cnt_list[i]->running) && (cnt_list[i]->restart) ) {
+                    motion_log(LOG_INFO, 0, "Motion thread %d restart", cnt_list[i]->threadnr);
                     start_motion_thread(cnt_list[i], &thread_attr);
                 }
-
                 if (cnt_list[i]->watchdog > WATCHDOG_OFF) {
                     cnt_list[i]->watchdog--;
-                    
                     if (cnt_list[i]->watchdog == 0) {
-                        MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Thread %d - Watchdog timeout, trying to do "
-                                   "a graceful restart", cnt_list[i]->threadnr);
+                        motion_log(LOG_ERR, 0, "Thread %d - Watchdog timeout, trying to do a graceful restart",
+                                                  cnt_list[i]->threadnr);
                         cnt_list[i]->finish = 1;
                     }
-
                     if (cnt_list[i]->watchdog == -60) {
-                        MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "%s: Thread %d - Watchdog timeout, did NOT restart graceful," 
-                                   "killing it!", cnt_list[i]->threadnr);
+                        motion_log(LOG_ERR, 0, "Thread %d - Watchdog timeout, did NOT restart graceful," 
+                                               "killing it!", cnt_list[i]->threadnr);
                         pthread_cancel(cnt_list[i]->thread_id);
                         pthread_mutex_lock(&global_lock);
                         threads_running--;
@@ -2826,29 +1926,27 @@ int main (int argc, char **argv)
                 }
             }
 
-            MOTION_LOG(ALL, TYPE_ALL, NO_ERRNO, "%s: DEBUG-2 threads_running %d motion_threads_running %d finish %d", 
-                       threads_running, motion_threads_running, finish);
+            if (debug_level >= CAMERA_DEBUG){
+                motion_log(LOG_INFO, 0, "DEBUG-2 threads_running %d motion_threads_running %d , finish %d",
+                                        threads_running, motion_threads_running, finish); 
+            }
         }
         /* Reset end main loop flag */
         finish = 0;
 
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Threads finished");
+        if (cnt_list[0]->conf.setup_mode)
+            motion_log(LOG_DEBUG, 0, "Threads finished");
 
         /* Rest for a while if we're supposed to restart. */
         if (restart)
-            SLEEP(2, 0);
+            SLEEP(2,0);
 
     } while (restart); /* loop if we're supposed to restart */
 
-#ifdef HAVE_SDL
-    sdl_stop();
-#endif
-
-
     // Be sure that http control exits fine
-    cnt_list[0]->webcontrol_finish = 1;
-    SLEEP(1, 0);
-    MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Motion terminating");
+    cnt_list[0]->finish = 1;
+    SLEEP(1,0);
+    motion_log(LOG_INFO, 0, "Motion terminating");
 
     /* Perform final cleanup. */
     pthread_key_delete(tls_key_threadnr);
@@ -2880,11 +1978,9 @@ int main (int argc, char **argv)
  */
 void * mymalloc(size_t nbytes)
 {
-    void *dummy = calloc(nbytes, 1);
- 
+    void *dummy = malloc(nbytes);
     if (!dummy) {
-        MOTION_LOG(EMG, TYPE_ALL, SHOW_ERRNO, "%s: Could not allocate %llu bytes of memory!", 
-                   (unsigned long long)nbytes);
+        motion_log(LOG_EMERG, 1, "Could not allocate %llu bytes of memory!", (unsigned long long)nbytes);
         motion_remove_pid();
         exit(1);
     }
@@ -2914,14 +2010,14 @@ void *myrealloc(void *ptr, size_t size, const char *desc)
 
     if (size == 0) {
         free(ptr);
-        MOTION_LOG(WRN, TYPE_ALL, NO_ERRNO,
-                   "%s: Warning! Function %s tries to resize memoryblock at %p to 0 bytes!",
-                    desc, ptr);
+        motion_log(LOG_WARNING, 0,
+                   "Warning! Function %s tries to resize memoryblock at %p to 0 bytes!",
+                   desc, ptr);
     } else {
         dummy = realloc(ptr, size);
         if (!dummy) {
-            MOTION_LOG(EMG, TYPE_ALL, NO_ERRNO,
-                       "%s: Could not resize memory-block at offset %p to %llu bytes (function %s)!",
+            motion_log(LOG_EMERG, 0,
+                       "Could not resize memory-block at offset %p to %llu bytes (function %s)!",
                        ptr, (unsigned long long)size, desc);
             motion_remove_pid();
             exit(1);
@@ -2930,7 +2026,6 @@ void *myrealloc(void *ptr, size_t size, const char *desc)
 
     return dummy;
 }
-
 
 /**
  * create_path
@@ -2958,33 +2053,22 @@ int create_path(const char *path)
         start = strchr(path, '/');
 
     while (start) {
-        char *buffer = mystrdup(path);
+        char *buffer = strdup(path);
         buffer[start-path] = 0x00;
 
         if (mkdir(buffer, mode) == -1 && errno != EEXIST) {
-            MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Problem creating directory %s", 
-                       buffer);
+            motion_log(LOG_ERR, 1, "Problem creating directory %s", buffer);
             free(buffer);
             return -1;
         }
 
-        start = strchr(start + 1, '/');
-
-        if (!start)
-            MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: creating directory %s", buffer);
-        
         free(buffer);
+
+        start = strchr(start + 1, '/');
     }
 
     return 0;
 }
-
-#define MYBUFCOUNT 32
-struct MyBuffer {
-    FILE* fh;
-    char* buffer;
-    size_t bufsize;
-} buffers[MYBUFCOUNT];
 
 /**
  * myfopen
@@ -2993,25 +2077,17 @@ struct MyBuffer {
  *   (which is: path does not exist), the path is created and then things are
  *   tried again. This is faster then trying to create that path over and over
  *   again. If someone removes the path after it was created, myfopen will
- *   recreate the path automatically. If the bufsize is set to > 0, we will
- *   allocate (or re-use) write buffers to use instead of the default ones.
- *   This gives us much higher throughput in many cases.
+ *   recreate the path automatically.
  *
  * Parameters:
  *
  *   path - path to the file to open
  *   mode - open mode
- *   bufsize - size of write buffers, 0 == OS default
  *
  * Returns: the file stream object
  */
-FILE * myfopen(const char *path, const char *mode, size_t bufsize)
+FILE * myfopen(const char *path, const char *mode)
 {
-    static int bufferInit = 0;
-    if (!bufferInit) {
-        bufferInit = 1;
-        memset(buffers, 0x00, sizeof(buffers));
-    }
     /* first, just try to open the file */
     FILE *dummy = fopen(path, mode);
 
@@ -3026,101 +2102,20 @@ FILE * myfopen(const char *path, const char *mode, size_t bufsize)
 
             /* and retry opening the file */
             dummy = fopen(path, mode);
+            if (dummy)
+                return dummy;
         }
-    }
- 
-    if (dummy) {
-        if (bufsize > 0) {
-            int i = 0;
-            for (i = 0; i < MYBUFCOUNT; i++) {
-                int first = -1;
-                if (!buffers[i].fh) {
-                    if (first == -1)
-                        first = i;
-                    if (buffers[i].buffer == NULL ||
-                        buffers[i].bufsize >= bufsize ||
-                        (i == (MYBUFCOUNT - 1) && first >= 0)) {
-                        if (buffers[i].buffer == NULL) {
-                            /* We are allocating a new buffer */
-                            buffers[i].fh = dummy;
-                            buffers[i].buffer = mymalloc(bufsize);
-                            buffers[i].bufsize = bufsize;
-                        }
-                        else if (buffers[i].bufsize >= bufsize) {
-                            /* We are using an old buffer */
-                            buffers[i].fh = dummy;
-                        }
-                        else {
-                            /* 
-                             * We are reusing an old buffer, but it is too
-                             * small, realloc it 
-                             */
-                            i = first;
-                            buffers[i].fh = dummy;
-                            buffers[i].buffer = myrealloc(buffers[i].buffer,
-                                                          bufsize, "myfopen");
-                            buffers[i].bufsize = bufsize;
-                        }
 
-                        if (buffers[i].buffer == NULL) {
-                            /* 
-                             * Our allocation failed, so just use the default
-                             * OS buffers 
-                             */
-                            buffers[i].fh = NULL;
-                            buffers[i].bufsize = 0;
-                        }
-                        else {
-                            setvbuf(buffers[i].fh, buffers[i].buffer,
-                                    _IOFBF, buffers[i].bufsize);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    } else {
-        /*
-         * Two possibilities
-         * 1: there was an other error while trying to open the file for the
-         * first time
+        /* two possibilities
+         * 1: there was an other error while trying to open the file for the first time
          * 2: could still not open the file after the path was created
          */
-        MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Error opening file %s with mode %s",  
-                   path, mode);
+        motion_log(LOG_ERR, 1, "Error opening file %s with mode %s", path, mode);
+
+        return NULL;
     }
 
     return dummy;
-}
-
-/**
- * myfclose
- *
- *  Motion-specific variant of fclose()   
- *
- * Returns: fclose() return value
- */ 
-int myfclose(FILE* fh)
-{
-    int i = 0;
-    int rval = fclose(fh);
-
-    if (rval != 0) 
-        MOTION_LOG(ERR, TYPE_ALL, SHOW_ERRNO, "%s: Error closing file");
-
-    for (i = 0; i < MYBUFCOUNT; i++) {
-        if (buffers[i].fh == fh) {
-            buffers[i].fh = NULL;
-            if ( finish ) {
-                /* Free the buffers */
-                if (buffers[i].buffer)
-                    free(buffers[i].buffer);
-                buffers[i].buffer = NULL;
-                buffers[i].bufsize = 0;
-            }
-        }
-    }
-    return rval;
 }
 
 /**
@@ -3128,7 +2123,7 @@ int myfclose(FILE* fh)
  *
  *   Motion-specific variant of strftime(3) that supports additional format
  *   specifiers in the format string.
- *  
+ *
  * Parameters:
  *
  *   cnt        - current thread's context structure
@@ -3142,14 +2137,13 @@ int myfclose(FILE* fh)
  *
  * Returns: number of bytes written to the string s
  */
-size_t mystrftime(const struct context *cnt, char *s, size_t max, const char *userformat,
+size_t mystrftime(struct context *cnt, char *s, size_t max, const char *userformat,
                   const struct tm *tm, const char *filename, int sqltype)
 {
     char formatstring[PATH_MAX] = "";
     char tempstring[PATH_MAX] = "";
     char *format, *tempstr;
     const char *pos_userformat;
-    int width;
 
     format = formatstring;
 
@@ -3162,110 +2156,85 @@ size_t mystrftime(const struct context *cnt, char *s, size_t max, const char *us
     for (pos_userformat = userformat; *pos_userformat; ++pos_userformat) {
 
         if (*pos_userformat == '%') {
-            /* 
-             * Reset 'tempstr' to point to the beginning of 'tempstring',
+            /* Reset 'tempstr' to point to the beginning of 'tempstring',
              * otherwise we will eat up tempstring if there are many
              * format specifiers.
              */
             tempstr = tempstring;
             tempstr[0] = '\0';
-            width = 0;
-            while ('0' <= pos_userformat[1] && pos_userformat[1] <= '9') {
-                width *= 10;
-                width += pos_userformat[1] - '0';
-                ++pos_userformat;
-            }
-
             switch (*++pos_userformat) {
-            case '\0': // end of string
-                --pos_userformat;
-                break;
-
-            case 'v': // event
-                sprintf(tempstr, "%0*d", width ? width : 2, cnt->event_nr);
-                break;
-
-            case 'q': // shots
-                sprintf(tempstr, "%0*d", width ? width : 2,
-                    cnt->current_image->shot);
-                break;
-
-            case 'D': // diffs
-                sprintf(tempstr, "%*d", width, cnt->current_image->diffs);
-                break;
-
-            case 'N': // noise
-                sprintf(tempstr, "%*d", width, cnt->noise);
-                break;
-
-            case 'i': // motion width
-                sprintf(tempstr, "%*d", width,
-                    cnt->current_image->location.width);
-                break;
-
-            case 'J': // motion height
-                sprintf(tempstr, "%*d", width,
-                    cnt->current_image->location.height);
-                break;
-
-            case 'K': // motion center x
-                sprintf(tempstr, "%*d", width, cnt->current_image->location.x);
-                break;
-
-            case 'L': // motion center y
-                sprintf(tempstr, "%*d", width, cnt->current_image->location.y);
-                break;
-
-            case 'o': // threshold
-                sprintf(tempstr, "%*d", width, cnt->threshold);
-                break;
-
-            case 'Q': // number of labels
-                sprintf(tempstr, "%*d", width,
-                    cnt->current_image->total_labels);
-                break;
-
-            case 't': // thread number
-                sprintf(tempstr, "%*d", width, (int)(unsigned long)
-                        pthread_getspecific(tls_key_threadnr));
-                break;
-
-            case 'C': // text_event
-                if (cnt->text_event_string && cnt->text_event_string[0])
-                    snprintf(tempstr, PATH_MAX, "%*s", width,
-                        cnt->text_event_string);
-                else
-                    ++pos_userformat;
-                break;
-
-            case 'f': // filename -- or %fps
-                if ((*(pos_userformat+1) == 'p') && (*(pos_userformat+2) == 's')) {
-                    sprintf(tempstr, "%*d", width, cnt->movie_fps);
-                    pos_userformat += 2;
+                case '\0': // end of string
+                    --pos_userformat;
                     break;
-                }
 
-                if (filename)
-                    snprintf(tempstr, PATH_MAX, "%*s", width, filename);
-                else
-                    ++pos_userformat;
-                break;
+                case 'v': // event
+                    sprintf(tempstr, "%02d", cnt->event_nr);
+                    break;
 
-            case 'n': // sqltype
-                if (sqltype)
-                    sprintf(tempstr, "%*d", width, sqltype);
-                else
-                    ++pos_userformat;
-                break;
+                case 'q': // shots
+                    sprintf(tempstr, "%02d", cnt->current_image->shot);
+                    break;
 
-            default: // Any other code is copied with the %-sign
-                *format++ = '%';
-                *format++ = *pos_userformat;
-                continue;
+                case 'D': // diffs
+                    sprintf(tempstr, "%d", cnt->current_image->diffs);
+                    break;
+
+                case 'N': // noise
+                    sprintf(tempstr, "%d", cnt->noise);
+                    break;
+
+                case 'i': // motion width
+                    sprintf(tempstr, "%d", cnt->current_image->location.width);
+                    break;
+
+                case 'J': // motion height
+                    sprintf(tempstr, "%d", cnt->current_image->location.height);
+                    break;
+
+                case 'K': // motion center x
+                    sprintf(tempstr, "%d", cnt->current_image->location.x);
+                    break;
+
+                case 'L': // motion center y
+                    sprintf(tempstr, "%d", cnt->current_image->location.y);
+                    break;
+
+                case 'o': // threshold
+                    sprintf(tempstr, "%d", cnt->threshold);
+                    break;
+
+                case 'Q': // number of labels
+                    sprintf(tempstr, "%d", cnt->current_image->total_labels);
+                    break;
+                case 't': // thread number
+                    sprintf(tempstr, "%d",(int)(unsigned long)
+                            pthread_getspecific(tls_key_threadnr));
+                    break;
+                case 'C': // text_event
+                    if (cnt->text_event_string && cnt->text_event_string[0])
+                        snprintf(tempstr, PATH_MAX, "%s", cnt->text_event_string);
+                    else
+                        ++pos_userformat;
+                    break;
+                case 'f': // filename
+                    if (filename)
+                        snprintf(tempstr, PATH_MAX, "%s", filename);
+                    else
+                        ++pos_userformat;
+                    break;
+                case 'n': // sqltype
+                    if (sqltype)
+                        sprintf(tempstr, "%d", sqltype);
+                    else
+                        ++pos_userformat;
+                    break;
+                default: // Any other code is copied with the %-sign
+                    *format++ = '%';
+                    *format++ = *pos_userformat;
+                    continue;
             }
 
-            /* 
-             * If a format specifier was found and used, copy the result from
+            /* If a format specifier was found and used, copy the result from
              * 'tempstr' to 'format'.
              */
             if (tempstr[0]) {
@@ -3284,4 +2253,91 @@ size_t mystrftime(const struct context *cnt, char *s, size_t max, const char *us
 
     return strftime(s, max, format, tm);
 }
+
+/**
+ * motion_log
+ *
+ *    This routine is used for printing all informational, debug or error
+ *    messages produced by any of the other motion functions.  It always
+ *    produces a message of the form "[n] {message}", and (if the param
+ *    'errno_flag' is set) follows the message with the associated error
+ *    message from the library.
+ *
+ * Parameters:
+ *
+ *     level           logging level for the 'syslog' function
+ *                     (-1 implies no syslog message should be produced)
+ *     errno_flag      if set, the log message should be followed by the
+ *                     error message.
+ *     fmt             the format string for producing the message
+ *     ap              variable-length argument list
+ *
+ * Returns:
+ *                     Nothing
+ */
+void motion_log(int level, int errno_flag, const char *fmt, ...)
+{
+    int errno_save, n;
+    char buf[1024];
+#if (!defined(BSD)) && (!(_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE)
+    char msg_buf[100];
+#endif
+    va_list ap;
+    int threadnr;
+
+    /* If pthread_getspecific fails (e.g., because the thread's TLS doesn't
+     * contain anything for thread number, it returns NULL which casts to zero,
+     * which is nice because that's what we want in that case.
+     */
+    threadnr = (unsigned long)pthread_getspecific(tls_key_threadnr);
+
+    /*
+     * First we save the current 'error' value.  This is required because
+     * the subsequent calls to vsnprintf could conceivably change it!
+     */
+    errno_save = errno;
+
+    /* Prefix the message with the thread number (if not meant for lockwatcher)*/
+    if (level != 2)
+      n = snprintf(buf, sizeof(buf), "[%d] ", threadnr);
+    else n = 0;
+
+    /* Next add the user's message */
+    va_start(ap, fmt);
+    n += vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
+
+    /* If errno_flag is set, add on the library error message */
+    if (errno_flag) {
+        strncat(buf, ": ", 1024 - strlen(buf));
+        n += 2;
+
+        /*
+         * this is bad - apparently gcc/libc wants to use the non-standard GNU
+         * version of strerror_r, which doesn't actually put the message into
+         * my buffer :-(.  I have put in a 'hack' to get around this.
+         */
+#if (defined(BSD))
+        strerror_r(errno_save, buf + n, sizeof(buf) - n);    /* 2 for the ': ' */
+#elif (_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE
+        strerror_r(errno_save, buf + n, sizeof(buf) - n);
+#else
+        strncat(buf, strerror_r(errno_save, msg_buf, sizeof(msg_buf)), 1024 - strlen(buf));
+#endif
+    }
+    /* If 'level' is not negative, send the message to the syslog */
+    if (level >= 0)
+        syslog(level, "%s", buf);
+
+    /* For printing to stderr we need to add a newline */
+    if (level == 2 || level == -1)
+    {
+    strcat(buf, "\n");
+    fputs(buf, stderr);
+    fflush(stderr);
+    }
+    /* Clean up the argument list routine */
+    va_end(ap);
+}
+
+
 

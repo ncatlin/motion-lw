@@ -12,7 +12,7 @@
 #include <ctype.h>
 #include "motion.h"
 
-/* Highest ascii value is 126 (~) */
+/* highest ascii value is 126 (~) */
 #define ASCII_MAX 127
 
 unsigned char *small_char_arr_ptr[ASCII_MAX];
@@ -1075,10 +1075,8 @@ struct draw_char draw_table[]= {
 struct big_char big_table[sizeof(draw_table) / sizeof(struct draw_char)];
 
 #define NEWLINE "\\n"
-/**
- * draw_textn
- */ 
-static int draw_textn(unsigned char *image, unsigned int startx, unsigned int starty, unsigned int width, const char *text, int len, unsigned int factor)
+
+static int draw_textn (unsigned char *image, int startx, int starty, int width, const char *text, int len, unsigned short int factor)
 {
     int pos, x, y, line_offset, next_char_offs;
     unsigned char *image_ptr, *char_ptr, **char_arr_ptr;
@@ -1086,6 +1084,9 @@ static int draw_textn(unsigned char *image, unsigned int startx, unsigned int st
     if (startx > width / 2)
         startx -= len * (6 * (factor + 1));
 
+    if (startx < 0)
+        startx = 0;
+    
     if (startx + len * 6 * (factor + 1) >= width)
         len = (width-startx-1)/(6*(factor+1));
     
@@ -1097,19 +1098,10 @@ static int draw_textn(unsigned char *image, unsigned int startx, unsigned int st
     char_arr_ptr = factor ? big_char_arr_ptr : small_char_arr_ptr;
     
     for (pos = 0; pos < len; pos++) {
-        int pos_check = (int)text[pos];
-
-        char_ptr = char_arr_ptr[pos_check];
+        char_ptr = char_arr_ptr[(int)text[pos]];
 
         for (y = 8 * (factor + 1); y--;) {
             for (x = 7 * (factor + 1); x--;) {
-
-                if (pos_check < 0) {
-                    image_ptr++;
-                    char_ptr++;
-                    continue;
-                }                    
-                            
                 switch(*char_ptr) {
                 case 1:
                     *image_ptr = 0;
@@ -1132,16 +1124,13 @@ static int draw_textn(unsigned char *image, unsigned int startx, unsigned int st
     return 0;
 }
 
-/**
- * draw_text 
- */
-int draw_text(unsigned char *image, unsigned int startx, unsigned int starty, unsigned int width, const char *text, unsigned int factor)
+int draw_text (unsigned char *image, int startx, int starty, int width, const char *text, unsigned short int factor)
 {
     int num_nl = 0;
     const char *end, *begin;
     const int line_space = (factor + 1) * 9;
     
-    /* Count the number of newlines in "text" so we scroll it up the image. */
+    /* Count the number of newlines in "text" so we scroll it up the image */
     end = text;
 
     while ((end = strstr(end, NEWLINE))) {
@@ -1150,7 +1139,6 @@ int draw_text(unsigned char *image, unsigned int startx, unsigned int starty, un
     }
 
     starty -= line_space * num_nl;
-    
     begin = end = text;
 
     while ((end = strstr(end, NEWLINE))) {
@@ -1167,9 +1155,6 @@ int draw_text(unsigned char *image, unsigned int startx, unsigned int starty, un
     return 0;
 }
 
-/**
- * initialize_chars
- */ 
 int initialize_chars(void)
 {
     unsigned int i, x, y;
@@ -1182,19 +1167,19 @@ int initialize_chars(void)
         big_table[i].ascii = draw_table[i].ascii;
 
         for(x = 0; x < 14; x++) {
-            for(y = 0; y < 16; y++)
+            for(y = 0; y < 16; y++) 
                 big_table[i].pix[y][x] = draw_table[i].pix[y / 2][x / 2];
             
         }
     }
 
-    /* First init all char ptr's to a space character. */
+    /* first init all char ptr's to a space character */
     for (i = 0; i < ASCII_MAX; i++) {
         small_char_arr_ptr[i] = &draw_table[0].pix[0][0];
         big_char_arr_ptr[i] = &big_table[0].pix[0][0];
     }
             
-    /* Build [big_]char_arr_ptr table to point to each available ascii. */
+    /* build [big_]char_arr_ptr table to point to each available ascii */
     for (i = 0; i < draw_table_size; i++) {
         small_char_arr_ptr[(int)draw_table[i].ascii] = &draw_table[i].pix[0][0];
         big_char_arr_ptr[(int)draw_table[i].ascii] = &big_table[i].pix[0][0];

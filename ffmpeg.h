@@ -29,8 +29,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-/* 
- * Define a codec name/identifier for timelapse videos, so that we can
+/* Define a codec name/identifier for timelapse videos, so that we can
  * differentiate between normal mpeg1 videos and timelapse videos.
  */
 #define TIMELAPSE_CODEC "mpeg1_tl"
@@ -56,8 +55,7 @@ struct ffmpeg {
 /* Initialize FFmpeg stuff. Needs to be called before ffmpeg_open. */
 void ffmpeg_init(void);
 
-/*
- * Open an mpeg file. This is a generic interface for opening either an mpeg1 or
+/* Open an mpeg file. This is a generic interface for opening either an mpeg1 or
  * an mpeg4 video. If non-standard mpeg1 isn't supported (FFmpeg build > 4680), 
  * calling this function with "mpeg1" as codec results in an error. To create a
  * timelapse video, use TIMELAPSE_CODEC as codec name.
@@ -76,10 +74,10 @@ struct ffmpeg *ffmpeg_open(
     );
 
 /* Puts the image pointed to by the picture member of struct ffmpeg. */
-int ffmpeg_put_image(struct ffmpeg *);
+void ffmpeg_put_image(struct ffmpeg *);
 
 /* Puts the image defined by u, y and v (YUV420 format). */
-int ffmpeg_put_other_image(
+void ffmpeg_put_other_image(
     struct ffmpeg *ffmpeg, 
     unsigned char *y, 
     unsigned char *u, 
@@ -89,10 +87,10 @@ int ffmpeg_put_other_image(
 /* Closes the mpeg file. */
 void ffmpeg_close(struct ffmpeg *);
 
-/* Deinterlace the image. */
+/*Deinterlace the image. */
 void ffmpeg_deinterlace(unsigned char *, int, int);
 
-/* Setup an avcodec log handler. */
+/*Setup an avcodec log handler. */
 void ffmpeg_avcodec_log(void *, int, const char *, va_list);
 
 #endif /* _INCLUDE_FFMPEG_H_ */

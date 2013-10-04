@@ -1,3 +1,10 @@
+This is a stripped down version of motion which can be used from the commandline,
+without conf files, webcams, ffmpeg, tracking, http, etc, etc, etc
+
+It was designed to be used by lockwatcher for motion detection without the horrible setup
+that using multiple motion installations would require.
+
+-------------------------------------------------------------------------
 Motion up to version 3.1.8 was created and maintained by Jeroen Vreeken.
 Versions 3.1.9-3.1.12 was maintained by Kenneth Lavrsen (http://www.lavrsen.dk/)
 and Folkert van Heusden (http://www.vanheusden.com/).
@@ -44,17 +51,17 @@ installation and use.
 The Motion Guide is part of the distribution (motion_guide.htm).
 You are encouraged to look up an up to date version by visiting the Motion
 homepage at
-http://www.lavrsen.dk/twiki/bin/view/Motion/WebHome
+http://www.lavrsen.dk/foswiki/bin/view/Motion/WebHome
 and specifically the Motion Guide at
-http://www.lavrsen.dk/twiki/bin/view/Motion/MotionGuide
+http://www.lavrsen.dk/foswiki/bin/view/Motion/MotionGuide
 
 
 Support:
 
-Lots of resources at http://www.lavrsen.dk/twiki/bin/view/Motion/WebHome
+Lots of resources at http://www.lavrsen.dk/foswiki/bin/view/Motion/WebHome
 
 Please join the mailing list
-http://www.lavrsen.dk/twiki/bin/view/Motion/MailingList
+http://www.lavrsen.dk/foswiki/bin/view/Motion/MailingList
 Newbies and silly questions are welcome. We prefer support through the mailing
 list because more will have benefit from the answers.
 

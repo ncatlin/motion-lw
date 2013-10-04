@@ -10,30 +10,30 @@
 # http://www.lavrsen.dk/foswiki/bin/view/Motion                                  #
 ################################################################################
 
-CC      = @CC@
+CC      = gcc
 INSTALL = install
 
 ################################################################################
 # Install locations, controlled by setting configure flags.                    #
 ################################################################################
-prefix      = @prefix@
-exec_prefix = @exec_prefix@
-bindir      = @bindir@
-mandir      = @mandir@
-sysconfdir  = @sysconfdir@
-datadir     = @datadir@
-datarootdir = @datarootdir@
-docdir      = $(datadir)/doc/@PACKAGE_NAME@-@PACKAGE_VERSION@
-examplesdir = $(datadir)/@PACKAGE_NAME@-@PACKAGE_VERSION@/examples
+prefix      = /usr/local
+exec_prefix = ${prefix}
+bindir      = ${exec_prefix}/bin
+mandir      = ${datarootdir}/man
+sysconfdir  = ${prefix}/etc
+datadir     = ${datarootdir}
+datarootdir = ${prefix}/share
+docdir      = $(datadir)/doc/motion-3.2.12
+examplesdir = $(datadir)/motion-3.2.12/examples
 
 ################################################################################
 # These variables contain compiler flags, object files to build and files to   #
 # install.                                                                     #
 ################################################################################
-CFLAGS       = @CFLAGS@ -Wall -DVERSION=\"@PACKAGE_VERSION@\" -Dsysconfdir=\"$(sysconfdir)\" 
-LDFLAGS      = @LDFLAGS@
-LIBS         = @LIBS@ 
-VIDEO_OBJ    = @VIDEO@
+CFLAGS       =  -g -O2 -D_REENTRANT -DMOTION_V4L2 -DMOTION_V4L2_OLD -DTYPE_32BIT="int" -DHAVE_BSWAP   -march=i686 -Wall -DVERSION=\"3.2.12\" -Dsysconfdir=\"$(sysconfdir)\" 
+LDFLAGS      =  
+LIBS         = -lm  -lpthread -ljpeg 
+VIDEO_OBJ    = video.o video2.o video_common.o
 OBJ          = motion.o conf.o draw.o jpegutils.o $(VIDEO_OBJ) \
 			   alg.o event.o picture.o rotate.o
 			   
@@ -65,7 +65,7 @@ pre-build-info:
 	@echo "Motion Guide contains all information you should need to get Motion up and running."
 	@echo "Run \"make updateguide\" to download the latest version of the Motion Guide."
 	@echo
-	@echo "Version: @PACKAGE_VERSION@"
+	@echo "Version: 3.2.12"
 ifneq (,$(findstring freebsd,$(VIDEO_OBJ)))
 	@echo "Platform: FreeBSD"
 else

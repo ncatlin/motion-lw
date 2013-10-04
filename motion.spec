@@ -1,5 +1,5 @@
-Name:           @PACKAGE_NAME@
-Version:        @PACKAGE_VERSION@
+Name:           motion
+Version:        3.2.12
 Release:        1%{?dist}
 Summary:        A motion detection system
 

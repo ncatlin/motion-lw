@@ -1,11 +1,8 @@
 # Process this file with autoconf to produce a configure script
 
-AC_INIT(motion, esyscmd(['./version.sh']))
+AC_INIT(motion, 3.2.12)
 AC_CONFIG_SRCDIR([motion.c])
 AC_CONFIG_HEADERS(config.h)
-AC_PROG_CC
-AC_PREREQ(2.40)
-
 
 THREAD_CFLAGS=""
 THREAD_CHECK="/usr/include/pthread.h"
@@ -85,6 +82,7 @@ TEMP_LIBS="-lm ${TEMP_LIBS}"
 TEMP_CFLAGS="${TEMP_CFLAGS} ${CFLAGS}"
 TEMP_LDFLAGS="${TEMP_LDFLAGS} ${LDFLAGS}"
 
+
 if test "${FreeBSD}" != "" && test "${PWCBSD}" = "no"; then
 
 	AC_MSG_CHECKING(bktr headers in /usr/include/dev/bktr)
@@ -106,6 +104,7 @@ AC_ARG_WITH(bktr,
                           ,
 BKTR="$withval"
 )
+
 
 	if test "${BKTR}" = "no"; then
         	TEMP_CFLAGS="${TEMP_CFLAGS} -DWITHOUT_V4L"
@@ -140,10 +139,10 @@ AC_MSG_CHECKING(for linuxthreads)
 # Check for thread header
 #
 	if test -f "${THREAD_CHECK}"; then
-       	HEADERS_THREAD_CFLAGS="-I/usr/local/include/pthread/linuxthreads"
-       	THREADS="yes"
+        	HEADERS_THREAD_CFLAGS="-I/usr/local/include/pthread/linuxthreads"
+        	THREADS="yes"
 	else
-       	THREADS="no"
+        	THREADS="no"
 	fi
 
 #
@@ -153,7 +152,7 @@ AC_MSG_CHECKING(for linuxthreads)
 		THREADS="yes"
 		LIB_THREAD="-llthread -llgcc_r"
 	else
-       	THREADS="no"
+        	THREADS="no"
 	fi
 
 # Checks for Library linuxthreads for FreeBSD
@@ -166,17 +165,17 @@ AC_MSG_CHECKING(for linuxthreads)
 
 	if test "${THREADS}" = "yes"; then
 		TEMP_CFLAGS="${HEADERS_THREAD_CFLAGS} $TEMP_CFLAGS -DWITH_LINUXTREADS"
-        TEMP_LIBS="$TEMP_LIBS ${LIB_THREAD}"
-        THREAD_CFLAGS="-D_THREAD_SAFE"
-        PTHREAD_SUPPORT="yes"
-        AC_MSG_RESULT($THREADS)
-    else
-        PTHREAD_SUPPORT="no"
-        AC_MSG_RESULT($THREADS)
-        echo
-        echo "You do not have linuxthread installed"
-        echo
-    fi
+                TEMP_LIBS="$TEMP_LIBS ${LIB_THREAD}"
+                THREAD_CFLAGS="-D_THREAD_SAFE"
+                PTHREAD_SUPPORT="yes"
+                AC_MSG_RESULT($THREADS)
+        else
+                PTHREAD_SUPPORT="no"
+                AC_MSG_RESULT($THREADS)
+                echo
+                echo "You do not have linuxthread installed"
+                echo
+        fi
 
 elif test -f "${THREAD_CHECK}"; then
 
@@ -208,91 +207,6 @@ else
 fi
 
 
-#
-# Check for sdl library
-#
-SDL_SUPPORT="no"
-AC_ARG_WITH(sdl,
-[  --without-sdl           Compile without sdl support to get stream in SDL window.
-],
-[],
-[])
-AC_MSG_CHECKING(for sdl)
-if test "x$withval" = "xno"; then
-	AC_MSG_RESULT(skipped)
-else
-	if test "${FreeBSD}" != ""; then
-		CONFIG_SDL='sdl11-config'
-	else
-		CONFIG_SDL='sdl-config'
-	fi
-	if test -z "`($CONFIG_SDL --version) 2>/dev/null`" ;then
-		AC_MSG_RESULT(no)
-		if test "$withval" = "yes"; then
-			echo ""
-			echo "****************************************************"
-			echo "* sdl-config could not be found. Please install it *"
-			echo "* and remove the --with-sdl configure argument.    *"
-			echo "* libSDL can be found at http://www.libsdl.org     *"
-			echo "****************************************************"
-			echo ""
-		fi
-	else
-		AC_MSG_RESULT(yes)
-		SDL_SUPPORT="yes"
-		TEMP_LIBS="$TEMP_LIBS `${CONFIG_SDL} --libs`"
-		TEMP_CFLAGS="${TEMP_CFLAGS} `${CONFIG_SDL} --cflags`"
-		AC_DEFINE([HAVE_SDL],1,[Define to 1 if you have SDL support])
-		SDL_OBJ="sdl.o"
-		AC_SUBST(SDL_OBJ)
-	fi
-fi
-
-#
-# Check for the libjpeg-turbo library
-#
-JPEG_TURBO="no"
-JPEG_TURBO_OK="not_found"
-
-AC_ARG_WITH(jpeg-turbo,
-[  --with-jpeg-turbo[=DIR]   Specify the prefix for the install path for
-                          jpeg-turbo for optimized jpeg handling (optional).
-                          ],
-JPEG_TURBO="$withval"
-)
-
-if test "${JPEG_TURBO}" = "no"; then
-    AC_MSG_CHECKING(for libjpeg-turbo)
-    AC_MSG_RESULT(skipping)
-else
-    AC_MSG_CHECKING(for libjpeg-turbo in -> [${JPEG_TURBO}] <-)
-    if test -f ${JPEG_TURBO}/lib/libjpeg.a ; then
-        AC_MSG_RESULT(found)
-        JPEG_TURBO_OK="found"
-    else
-        AC_MSG_RESULT(not found)
-    fi
-fi
-
-
-if test "${JPEG_TURBO_OK}" = "found"; then
-    saved_CFLAGS="$CFLAGS"
-    saved_LIBS="$LIBS"
-    saved_LDFLAGS="$LDFLAGS"
-    LDFLAGS="-L${JPEG_TURBO}/lib"
-    CFLAGS="$CFLAGS -I${JPEG_TURBO}/include"
-    LIBS="$LIBS -L${JPEG_TURBO}/lib -ljpeg"
-    AC_CHECK_LIB(jpeg, jpeg_start_compress,
-        [ TEMP_LIBS="$LIBS"
-          TEMP_CFLAGS="${CFLAGS}"
-          TEMP_LDFLAGS="$TEMP_LDFLAGS $LDFLAGS"
-          JPEG_SUPPORT="yes"],,)
-    LIBS="$saved_LIBS"
-    CFLAGS="$saved_CFLAGS"
-    LDFLAGS="$saved_LDFLAGS"
-    JPEG_SUPPORT_TURBO="yes"
-fi
-
 
 #
 # Check for the special mmx accelerated jpeg library
@@ -312,7 +226,7 @@ JPEG_MMX="$withval"
 # --without-jpeg-mmx or with-jpeg-mmx=no
 #
 
-if test "${JPEG_MMX}" = "no" || test x$JPEG_SUPPORT != xyes; then
+if test "${JPEG_MMX}" = "no"; then
         AC_MSG_CHECKING(for libjpeg-mmx)
         AC_MSG_RESULT(skipping)
 elif test "${JPEG_MMX}" = "yes"; then
@@ -359,7 +273,10 @@ fi
 #
 if test x$JPEG_SUPPORT != xyes ; then
   # Checks for libraries
-  LDFLAGS=$TEMP_LDFLAGS
+  LDFLAGS="$TEMP_LDFLAGS"
+
+  AC_MSG_CHECKING(for libjpeg)
+  echo
 
   AC_CHECK_LIB(jpeg, jpeg_set_defaults, [
 		TEMP_LIBS="$TEMP_LIBS -ljpeg"
@@ -388,17 +305,6 @@ AC_ARG_WITH(ffmpeg,
                           ],
 FFMPEG_DIR="$withval"
 )
-
-# 
-# ffmpeg headers custom location
-#
-FFMPEG_HEADERS_DIR="yes"
-AC_ARG_WITH(ffmpeg_headers,
-[  --with-ffmpeg-headers[=DIR] Specify the prefix for ffmpeg headers.
-                               ],
-FFMPEG_HEADERS_DIR="$withval"
-)
-
 #
 # --without-ffmpeg or with-ffmpeg=no
 #
@@ -412,7 +318,12 @@ else if test "${FFMPEG_DIR}" = "yes"; then
 	# AUTODETECT STATIC/SHARED LIB 
 	AC_MSG_CHECKING(for ffmpeg autodetecting libraries)
 
-	if test -f /usr/lib64/libavcodec.a -o -f /usr/lib64/libavcodec.so && test -f /usr/lib64/libavformat.a -o -f /usr/lib64/libavformat.so ; then
+	if test -f /usr/lib/$(dpkg-architecture -qDEB_BUILD_MULTIARCH)/libavcodec.so ; then
+		AC_MSG_RESULT(found in /usr/lib/$(dpkg-architecture -qDEB_BUILD_MULTIARCH))
+		FFMPEG_OK="found"
+		FFMPEG_LIB="/usr/lib/$(dpkg-architecture -qDEB_BUILD_MULTIARCH)"
+		FFMPEG_DIR="/usr"
+	elif test -f /usr/lib64/libavcodec.a -o -f /usr/lib64/libavcodec.so && test -f /usr/lib64/libavformat.a -o -f /usr/lib64/libavformat.so ; then
 		AC_MSG_RESULT(found in /usr/lib64)
 		FFMPEG_OK="found"
 		FFMPEG_LIB="/usr/lib64"
@@ -472,119 +383,79 @@ fi
 #
 
 if test "${FFMPEG_OK}" = "found"; then
-    if test "${FFMPEG_HEADERS_DIR}" = "yes"; then
-        AC_MSG_CHECKING(for ffmpeg headers in ${FFMPEG_DIR})
-	else
-        AC_MSG_CHECKING(for ffmpeg headers in ${FFMPEG_HEADERS_DIR})
-        FFMPEG_DIR="${FFMPEG_HEADERS_DIR}"
-    fi
-
-    if test -f ${FFMPEG_DIR}/include/avformat.h; then
-        AC_MSG_RESULT(found ${FFMPEG_DIR}/include/avformat.h)
-        FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include"
-    elif test -f ${FFMPEG_DIR}/avformat.h; then
-        AC_MSG_RESULT(found ${FFMPEG_DIR}/avformat.h)
-        FFMPEG_CFLAGS="-I${FFMPEG_DIR}"
-    elif test -f ${FFMPEG_DIR}/include/ffmpeg/avformat.h; then
-        AC_MSG_RESULT(found ${FFMPEG_DIR}/include/ffmpeg/avformat.h)
-        FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include/ffmpeg"
-    elif test -f ${FFMPEG_DIR}/include/libavformat/avformat.h; then
-        AC_MSG_RESULT(found ${FFMPEG_DIR}/include/libavformat/avformat.h)
-        FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include -DFFMPEG_NEW_INCLUDES"
-        AVFORMAT="-I${FFMPEG_DIR}/include/libavformat" 
+	AC_MSG_CHECKING(for ffmpeg headers in ${FFMPEG_DIR})
+	
+	if test -f ${FFMPEG_DIR}/include/avformat.h; then
+		AC_MSG_RESULT(found ${FFMPEG_DIR}/include/avformat.h)
+		FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include"
+	elif test -f ${FFMPEG_DIR}/avformat.h; then
+		AC_MSG_RESULT(found ${FFMPEG_DIR}/avformat.h)
+		FFMPEG_CFLAGS="-I${FFMPEG_DIR}"
+	elif test -f ${FFMPEG_DIR}/include/ffmpeg/avformat.h; then
+		AC_MSG_RESULT(found ${FFMPEG_DIR}/include/ffmpeg/avformat.h)
+		FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include/ffmpeg"
+	elif test -f ${FFMPEG_DIR}/include/libavformat/avformat.h; then
+		AC_MSG_RESULT(found ${FFMPEG_DIR}/include/libavformat/avformat.h)
+		FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include -DFFMPEG_NEW_INCLUDES"
+		AVFORMAT="-I${FFMPEG_DIR}/include/libavformat"
     elif test -f ${FFMPEG_DIR}/include/ffmpeg/libavformat/avformat.h; then
         AC_MSG_RESULT(found ${FFMPEG_DIR}/include/ffmpeg/libavformat/avformat.h)
-        FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include/ffmpeg -DFFMPEG_NEW_INCLUDES"
-        AVFORMAT="-I${FFMPEG_DIR}/include/ffmpeg/libavformat" 
-    elif test -f ${FFMPEG_DIR}/libavformat/avformat.h; then
-        AC_MSG_RESULT(found ${FFMPEG_DIR}/libavformat/avformat.h)
-        FFMPEG_CFLAGS="-I${FFMPEG_DIR} -DFFMPEG_NEW_INCLUDES"
-        AVFORMAT="-I{FFMPEG_DIR}/libavformat"
-    else
-        AC_MSG_RESULT(not found)
-        FFMPEG_OK="no_found"
-        echo "**********************************************"
-        echo "*       avformat.h not found:                *"
-        echo "*    ALL FFMPEG FEATURES DISABLED            *"
-        echo "*                                            *"
-        echo "* Please read the Motion Guide for help:     *"
-        echo "* http://motion.sourceforge.net              *"
-        echo "**********************************************"
-        echo ""
-    fi
+        FFMPEG_CFLAGS="-I${FFMPEG_DIR}/include/ffmpeg -DFFMPEG_NEW_INCLUDES" 
+	AVFORMAT="-I${FFMPEG_DIR}/include/ffmpeg/libavformat"
+	else
+		AC_MSG_RESULT(not found)
+		FFMPEG_OK="no_found"
+		echo "**********************************************"
+		echo "*       avformat.h not found:                *"
+		echo "*    ALL FFMPEG FEATURES DISABLED            *"
+		echo "*                                            *"
+		echo "* Please read the Motion Guide for help:     *"
+		echo "* http://motion.sourceforge.net              *"
+		echo "**********************************************"
+		echo ""
+	fi
 
 #
 # If ffmpeg libs and headers have been found 
 #
 
 	if  test "${FFMPEG_OK}" = "found"; then	
-        TEMP_LIBS="$TEMP_LIBS -L${FFMPEG_LIB} -lavformat -lavcodec -lavutil -lm -lz"
-        TEMP_LDFLAGS="${TEMP_LDFLAGS} -L${FFMPEG_LIB}"
-        TEMP_CFLAGS="${TEMP_CFLAGS} -DHAVE_FFMPEG ${FFMPEG_CFLAGS}"
+		TEMP_LIBS="$TEMP_LIBS -L${FFMPEG_LIB} -lavformat -lavcodec -lavutil -lm -lz"
+		TEMP_LDFLAGS="${TEMP_LDFLAGS} -L${FFMPEG_LIB}"
+		TEMP_CFLAGS="${TEMP_CFLAGS} -DHAVE_FFMPEG ${FFMPEG_CFLAGS}"
 
-        FFMPEG_OBJ="ffmpeg.o"
-        AC_SUBST(FFMPEG_OBJ)
+		FFMPEG_OBJ="ffmpeg.o"
+		AC_SUBST(FFMPEG_OBJ)
 
-        AC_MSG_CHECKING([file_protocol is defined in ffmpeg ?])
-        saved_CFLAGS=$CFLAGS
-        saved_LIBS=$LIBS
+		AC_MSG_CHECKING([file_protocol is defined in ffmpeg ?])
+		saved_CFLAGS=$CFLAGS
+		saved_LIBS=$LIBS
 
 
 		CFLAGS="${FFMPEG_CFLAGS} ${AVFORMAT}"
 		LIBS="$TEMP_LIBS"
     	
-	    AC_COMPILE_IFELSE([AC_LANG_SOURCE([
-		    [
-		     #include <avformat.h>
-		     URLProtocol test_file_protocol;
-		     int main(void){
-		         test_file_protocol.url_read  = file_protocol.url_read;
-		         return 0;
-		     }
-		     ]])],
-		     [AC_MSG_RESULT(yes)],
-		     [
-			     AC_MSG_RESULT(no)
-			     TEMP_CFLAGS="${TEMP_CFLAGS} -DHAVE_FFMPEG_NEW"
-		     ]
-	    )
+		AC_COMPILE_IFELSE(
+			[
+			#include <avformat.h>
+			URLProtocol test_file_protocol;
+			int main(void){
+				test_file_protocol.url_read  = file_protocol.url_read;
+				return 0;
+			}
+			],
+			[AC_MSG_RESULT(yes)],
+			[
+				AC_MSG_RESULT(no)
+				TEMP_CFLAGS="${TEMP_CFLAGS} -DHAVE_FFMPEG_NEW"
+			]
+		)
 		CFLAGS=$saved_CFLAGS
 		LIBS=$saved_LIBS
+       
 	fi
 fi	
 fi
-
-
-#
-# Check SQLITE3
-#
-
-SQLITE3_SUPPORT="no"
-AC_ARG_WITH(sqlite3,
-    [  --without-sqlite3       Disable sqlite3 support in motion.
-    ],
-    SQLITE3="$withval"
-    # if not given argument, assume standard
-)
-
-if test "${SQLITE3}" = "no"; then
-    AC_MSG_CHECKING(for sqlite3)
-    AC_MSG_RESULT(skipping)
-else
-    saved_CFLAGS=$CFLAGS
-    saved_LIBS=$LIBS
-
-    AC_CHECK_LIB(sqlite3, sqlite3_open,
-    [
-    TEMP_LIBS="$TEMP_LIBS -lsqlite3"
-    SQLITE3_SUPPORT="yes"
-    AC_DEFINE([HAVE_SQLITE3],1,[Define to 1 if you have SQLITE3 support])
-    ]
-    )
-
-    CFLAGS=$saved_CFLAGS
-    LIBS=$saved_LIBS
-fi    
 
 
 #
@@ -669,7 +540,7 @@ else
 		AC_MSG_RESULT(not found)
 		echo "Invalid MySQL directory - unable to find mysql.h."
 	else
-		AC_MSG_RESULT($MYSQL_INCDIR yes)
+		AC_MSG_RESULT(yes)
 		MYSQL_HEADERS="yes"
 	fi
 
@@ -680,7 +551,7 @@ else
 	if test "${MYSQL_LIBS}" = "yes"; then
 		AC_MSG_CHECKING(autodect mysql libs)
         	# Autodetect
-		for w in /usr/lib64 /usr/lib /usr/local/lib /usr/mysql /usr/local/mysql /usr/local/mysql/lib /opt /opt/mysql /usr/lib/x86_64-linux-gnu; do
+		for w in /usr/lib64 /usr/lib /usr/local/lib /usr/mysql /usr/local/mysql /usr/local/mysql/lib /opt /opt/mysql; do
 			# check for plain setups
 			if test -f $w/libmysqlclient.a -o -f $w/libmysqlclient.so; then
 				MYSQL_LIBDIR=$w
@@ -886,6 +757,7 @@ AC_CHECK_FUNCS(get_current_dir_name)
 SUPPORTED_V4L2=false
 SUPPORTED_V4L2_old=false
 
+
 if test "${V4L}" = "no"; then
 	AC_MSG_CHECKING(for V42L support)
 	AC_MSG_RESULT(skipping)
@@ -1001,7 +873,6 @@ if test -e "/proc/cpuinfo" ; then
 	intel[[152]]="-march=pentium4"
 	intel[[154]]="-march=pentium4"
 	intel[[614]]="-march=prescott"
-	intel[[628]]="-march=core2"
 	amd[[50]]="-march=i586"
 	amd[[51]]="-march=i586"
 	amd[[52]]="-march=i586"
@@ -1072,9 +943,6 @@ if test -e "/proc/cpuinfo" ; then
 			;;
 		sse3)
 			CPU_FPU="-msse3"
-			;;
-		ssse3)
-			CPU_FPU="-mfpmath=sse -msse2 -mssse3"
 			;;
 		3dnow)
 			CPU_EXT="$CPU_EXT -m3dnow"
@@ -1150,7 +1018,7 @@ if test "x${CPU_TYPE}" = "xunknown"; then
 			CPU_OPTIONS="-march=k6-3"
 			;;
 		*)
-			CPU_OPTIONS="-march=native -mtune=native"
+			CPU_OPTIONS=""
 			;;
 		esac
 	fi
@@ -1201,7 +1069,7 @@ AC_LINK_IFELSE([
 
 
 if test "${DEVELOPER_FLAGS}" = "yes"; then
-	TEMP_CFLAGS="${TEMP_CFLAGS} -W -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -Winline -Wredundant-decls -Wno-long-long -ggdb -g3"
+	TEMP_CFLAGS="${TEMP_CFLAGS} -W -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -Winline -Wredundant-decls -Wno-long-long -ggdb -g3 "
 fi
 
 CFLAGS="${TEMP_CFLAGS} $UNAME_DEFS  $CPU_OPTIONS"
@@ -1214,6 +1082,7 @@ AC_CHECK_FUNC(avformat_alloc_context, AC_DEFINE([have_avformat_alloc_context],1,
 AC_CHECK_FUNC(av_avformat_alloc_context, AC_DEFINE([have_av_avformat_alloc_context],1,[Define to 1 if you have av_avformat_alloc_context support]))
 AC_CHECK_FUNC(av_register_protocol2, AC_DEFINE([have_av_register_protocol2],1,[Define to 1 if you have av_register_protocol2 support]))
 AC_CHECK_FUNC(av_register_protocol, AC_DEFINE([have_av_register_protocol],1,[Define to 1 if you have av_register_protocol support]))
+
 
 #
 # Add the right exec path for rc scripts
@@ -1234,6 +1103,7 @@ else
 fi
 
 
+AC_SUBST(DOC_DIR)
 AC_SUBST(BIN_PATH)
 
 AC_CONFIG_FILES([
@@ -1251,104 +1121,91 @@ Makefile
 AC_OUTPUT
 
 echo ""
-echo "   **************************"
-echo "      Configure status       "
+echo "   *******************************"
+echo "      Configure status    "
 echo "      ${PACKAGE_NAME} ${PACKAGE_VERSION}"
-echo "   **************************"
+echo "   *******************************"
 echo 
 
 
 if test "${Darwin}" != ""; then
-    echo "OS             :     Darwin"
+	echo "OS             :     Darwin"
 elif test "${FreeBSD}" != ""; then
-    echo "OS             :     *BSD"		
+	echo "OS             :     *BSD"		
 else 
-    echo "OS             :     Linux"
+	echo "OS             :     Linux"
 fi
 
 if test "${PTHREAD_SUPPORT}" = "yes"; then
-    echo "pthread support:     Yes"
+	echo "pthread Support:     Yes"
 else
-    echo "pthread support:     No"
-    echo "**********************************************"
-    echo "** Fatal Error YOU MUST HAVE pthread Support *"
-    echo "**********************************************" 
+	echo "pthread Support:     No"
+	echo "**********************************************"
+        echo "** Fatal Error YOU MUST HAVE pthread Support *"
+        echo "**********************************************" 
 fi
 
-
-if test "${JPEG_SUPPORT_TURBO}" = "yes"; then
-    echo "jpeg turbo support:  Yes"
-elif test "${JPEG_SUPPORT_MMX}" = "yes"; then
-    echo "jpeg-mmx support:    Yes"
+if test "${JPEG_SUPPORT_MMX}" = "yes"; then
+	echo "jpeg-mmx Support:    Yes"
 elif test "${JPEG_SUPPORT}" = "yes"; then
-    echo "jpeg support:        Yes"
+	echo "jpeg Support:        Yes"
 else
-    echo "jpeg support:        No"
-    echo "**********************************************"
-    echo "** Fatal Error YOU MUST HAVE jpeg Support  ***"
-    echo "**********************************************"
+	echo "jpeg Support:        No"
+	echo "**********************************************"
+        echo "** Fatal Error YOU MUST HAVE jpeg Support  ***"
+        echo "**********************************************"
 fi
 
 if test "${FreeBSD}" != ""; then
 	if test "${BKTR}" = "yes"; then
-        echo "BKTR included:       Yes"
+        	echo "BKTR included:       Yes"
 	else
-        echo "BKTR included:       No"
+        	echo "BKTR included:       No"
 	fi
 
 	if test "${PWCBSD}" = "yes"; then
-        echo "PWCBSD include:      Yes"
+		echo "PWCBSD include:      Yes"
 	else
-        echo "PWCBSD include:      No"
+		echo "PWCBSD include:      No"
 	fi
 
 else
 	if test "${V4L}" = "yes"; then
-        echo "V4L support:         Yes"
+		echo "V4L included:        Yes"
 	else
-        echo "V4L support:         No"
+		echo "V4L included:        No"
 	fi
 
 	if test x$SUPPORTED_V4L2 = xtrue; then
-        echo "V4L2 support:        Yes"	
+		echo "V4L2 supported:      Yes"	
 	else
-        echo "V4L2 support:        No"
+		echo "V4L2 supported:      No"
 	fi
 fi
 
-if test "${SDL_SUPPORT}" = "yes"; then
-	echo "SDL support:         Yes"
-else
-	echo "SDL support:         No"
-fi
-
 if test "${FFMPEG_OK}" = "found"; then
-    echo "FFmpeg support:      Yes"
+	echo "FFmpeg Support:      Yes"
 else
-    echo "FFmpeg support:      No"
-fi
-
-if test "${SQLITE3_SUPPORT}" = "yes"; then
-    echo "SQLite3 support:     Yes"
-else
-    echo "SQLite3 support:     No"
+	echo "FFmpeg Support:      No"
 fi
 
 if test "${MYSQL_SUPPORT}" = "yes"; then
-    echo "MYSQL support:       Yes"
+	echo "MYSQL Support:       Yes"
 else
-    echo "MYSQL support:       No"
+	echo "MYSQL Support:       No"
 fi
 
 if test "${PGSQL_SUPPORT}" = "yes"; then
-    echo "PostgreSQL support:  Yes"
+	echo "PostgreSQL Support:  Yes"
 else
-    echo "PostgreSQL support:  No"
+	echo "PostgreSQL Support:  No"
 fi
 echo 
+
 echo "CFLAGS: $CFLAGS"
 echo "LIBS: $LIBS"
 echo "LDFLAGS: $LDFLAGS"
+
 echo
 echo  "Install prefix:       $prefix"
 echo
