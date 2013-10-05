@@ -548,7 +548,7 @@ void vid_close(struct context *cnt)
     cnt->video_dev = -1;
 
     if (dev == NULL) {
-        motion_log(LOG_ERR, 0, "vid_close: Unable to find video device");
+        motion_log(2, 0, "vid_close: Unable to find video device");
         return;
     }
 
@@ -699,7 +699,7 @@ static int vid_v4lx_start(struct context *cnt)
     fd = open(dev->video_device, O_RDWR);
 
     if (fd < 0) {
-        motion_log(LOG_ERR, 1, "Failed to open video device %s", conf->video_device);
+        motion_log(2, 1, "Failed to open video device %s", conf->video_device);
         free(dev);
         pthread_mutex_unlock(&vid_mutex);
         return -1;

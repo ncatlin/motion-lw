@@ -1396,6 +1396,7 @@ static void conf_cmdline(struct context *cnt, short int thread)
 	    break;
 	case 'j':
 	    conf->write_image = 1;
+	    break;
         case 'h':
         case '?':
         default:

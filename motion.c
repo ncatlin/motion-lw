@@ -877,8 +877,8 @@ static void *motion_loop(void *arg)
              */
             if (cnt->video_dev < 0 &&
                 cnt->currenttime % 10 == 0 && cnt->shots == 0) {
-                motion_log(LOG_ERR, 0,
-                           "Retrying until successful connection with camera");
+                motion_log(2, 0,
+                           "Unavailable");
                 cnt->video_dev = vid_start(cnt);
 
                 /* if the netcam has different dimensions than in the config file
@@ -951,7 +951,7 @@ static void *motion_loop(void *arg)
             // FATAL ERROR - leave the thread by breaking out of the main loop    
             } else if (vid_return_code < 0) {
                 /* Fatal error - Close video device */
-                motion_log(LOG_ERR, 0, "Video device fatal error - Closing video device");
+                motion_log(2, 0, "Fatal error");
                 vid_close(cnt);
                 /* Use virgin image, if we are not able to open it again next loop
                  * a gray image with message is applied
@@ -1015,7 +1015,7 @@ static void *motion_loop(void *arg)
                      * Only try this when a device is open */
                     if ((cnt->video_dev > 0) && 
                         (cnt->missing_frame_counter == (MISSING_FRAMES_TIMEOUT * 4) * cnt->conf.frame_limit)) {
-                        motion_log(LOG_ERR, 0, "Video signal still lost - Trying to close video device");
+                        motion_log(2, 0, "Video signal still lost");
                         vid_close(cnt);
                     }
                 }
