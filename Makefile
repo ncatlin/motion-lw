@@ -30,7 +30,7 @@ examplesdir = $(datadir)/motion-3.2.12/examples
 # These variables contain compiler flags, object files to build and files to   #
 # install.                                                                     #
 ################################################################################
-CFLAGS       =  -g -O2 -D_REENTRANT -DMOTION_V4L2 -DMOTION_V4L2_OLD -DTYPE_32BIT="int" -DHAVE_BSWAP   -march=i686 -Wall -DVERSION=\"3.2.12\" -Dsysconfdir=\"$(sysconfdir)\" 
+CFLAGS       =  -g -O2 -D_REENTRANT -DMOTION_V4L2 -DMOTION_V4L2_OLD -DTYPE_32BIT="int" -DHAVE_BSWAP    -Wall -DVERSION=\"3.2.12\" -Dsysconfdir=\"$(sysconfdir)\" 
 LDFLAGS      =  
 LIBS         = -lm  -lpthread -ljpeg 
 VIDEO_OBJ    = video.o video2.o video_common.o

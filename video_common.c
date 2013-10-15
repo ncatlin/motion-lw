@@ -697,9 +697,9 @@ static int vid_v4lx_start(struct context *cnt)
     dev->video_device = conf->video_device;
 
     fd = open(dev->video_device, O_RDWR);
-
     if (fd < 0) {
-        motion_log(2, 1, "Failed to open video device %s", conf->video_device);
+	perror("Error: ");
+        motion_log(2, 1, "Failed to open video device '%s'", conf->video_device);
         free(dev);
         pthread_mutex_unlock(&vid_mutex);
         return -1;

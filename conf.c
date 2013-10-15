@@ -1377,7 +1377,7 @@ static void conf_cmdline(struct context *cnt, short int thread)
      * if necessary. This is accomplished by calling mystrcpy();
      * see this function for more information.
      */
-    while ((c = getopt(conf->argc, conf->argv, "hns?t:m:f:jv:")) != EOF)
+    while ((c = getopt(conf->argc, conf->argv, "hns?t:m:f:j:v:")) != EOF)
         switch (c) {
 	case 'v':
 	    strcpy(conf->video_device, optarg);
@@ -1396,6 +1396,7 @@ static void conf_cmdline(struct context *cnt, short int thread)
 	    break;
 	case 'j':
 	    conf->write_image = 1;
+	    conf->filepath = mystrcpy(conf->filepath, optarg);
 	    break;
         case 'h':
         case '?':
@@ -1989,7 +1990,7 @@ static void usage()
     printf("-f framerate\t\tFramerate for motion detection to operate at\n");
     printf("-m min_frames\t\tNumber of consecutive movement frames that need to occour before an event is triggered\n");
     printf("-t threshold\t\tNumber of pixels that must change per frame to be considered movement\n");
-    printf("-j save_jpeg\t\t1 To save a jpeg when an event is triggered, 0 to... not.\n");
+    printf("-j filepath\t\tSaves a picture of motion at the specified filepath\n");
     printf("-v video_device\t\tFull path and filename of the video device.\n");
     printf("-h\t\t\tShow this screen.\n");
     printf("\n");

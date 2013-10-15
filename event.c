@@ -44,6 +44,7 @@ static void event_image_detect(struct context *cnt, int type ATTRIBUTE_UNUSED,
         unsigned char *newimg, char *dummy1 ATTRIBUTE_UNUSED,
         void *dummy2 ATTRIBUTE_UNUSED, struct tm *currenttime_tm)
 {
+    if (cnt->conf.write_image == 0) return;
     char fullfilename[PATH_MAX];
     char filename[PATH_MAX];
     

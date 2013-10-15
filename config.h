@@ -83,7 +83,7 @@
 #define SIZEOF_INT 4
 
 /* The size of `long int', as computed by sizeof. */
-#define SIZEOF_LONG_INT 4
+#define SIZEOF_LONG_INT 8
 
 /* The size of `short int', as computed by sizeof. */
 /* #undef SIZEOF_SHORT_INT */
