@@ -4,6 +4,8 @@ without conf files, webcams, ffmpeg, tracking, http, etc, etc, etc
 It was designed to be used by lockwatcher for motion detection without the horrible setup
 that using multiple motion installations would require.
 
+Building requires libjpeg-dev and libv4l-dev
+
 -------------------------------------------------------------------------
 Motion up to version 3.1.8 was created and maintained by Jeroen Vreeken.
 Versions 3.1.9-3.1.12 was maintained by Kenneth Lavrsen (http://www.lavrsen.dk/)
